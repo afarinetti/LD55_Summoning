@@ -1,15 +1,20 @@
+use std::iter;
+use std::ptr::addr_of_mut;
+use bevy::ecs::system::lifetimeless::SCommands;
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::prelude::*;
-use bevy::render::camera::camera_system;
+use bevy::render::camera::Viewport;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
 use bevy_inspector_egui::bevy_egui::EguiContexts;
 use bevy_inspector_egui::egui;
+use bevy_inspector_egui::egui::debug_text::print;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::prelude::*;
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
+use rand::random;
 
 const WINDOW_WIDTH: f32 = 1024.0;
 const WINDOW_HEIGHT: f32 = 768.0;
@@ -18,8 +23,12 @@ const HALF_HEIGHT: f32 = WINDOW_HEIGHT / 2.0;
 const HALF_WIDTH: f32 = WINDOW_WIDTH / 2.0;
 
 const PLAYER_SPEED: f32 = 600.0;
-const PLAYER_POSITION: Vec3 = Vec3::new(0.0, -HALF_HEIGHT * 0.86, 0.0);
 const PLAYER_RADIUS: f32 = 25.0;
+const PLAYER_POSITION: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+
+const ENEMY_SPEED: f32 = PLAYER_SPEED * 0.5;
+const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 2.0;
+const ENEMY_POSITION: Vec3 = Vec3::new(WINDOW_WIDTH, WINDOW_HEIGHT, 0.0);
 
 fn main() {
     App::new()
@@ -50,7 +59,10 @@ fn main() {
         .add_plugins(RapierDebugRenderPlugin::default())
         // systems
         .add_systems(Startup, setup)
+        .add_systems(Startup, spawn_enemy.after(setup))
         .add_systems(Update, handle_actions)
+        .add_systems(Update, enemy_movement.after(handle_actions))
+        .add_systems(Update, minion_movement.after(enemy_movement))
         // .add_systems(Update, handle_collisions)
         // .add_systems(Update, dev_tools_system)
         // resources
@@ -59,13 +71,19 @@ fn main() {
 }
 
 #[derive(Component)]
-struct Camera;
+struct CameraMarker;
+
+#[derive(Resource)]
+struct GameSettings {
+    current_level: u32,
+    max_time_seconds: u32,
+}
 
 #[derive(Component)]
 struct Player;
 
 #[derive(Component)]
-struct Pet;
+struct Minion;
 
 #[derive(Component)]
 struct Enemy;
@@ -118,14 +136,21 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    // configure and spawn the camera
+    // configure and spawn theS camera
     let mut camera = Camera2dBundle {
-       // transform: Transform::from_xyz(100.0, 200.0, 0.0),
+        // camera: Camera {
+        //     viewport: Some(Viewport {
+        //         physical_position: UVec2::new(0, 0),
+        //         physical_size: UVec2::new(256, 256),
+        //         ..default()
+        //     }),
+        //     ..default()
+        // },
         ..default()
     };
-    camera.projection.scale = 2.0;
+    // camera.projection.scale = 2.0;
     // camera.transform.rotate_z(0f32.to_radians());
-    commands.spawn((camera, Camera));
+    commands.spawn((camera, CameraMarker));
 
     // create the top
     commands
@@ -168,6 +193,8 @@ fn setup(
     let player_shape = Mesh2dHandle(meshes.add(Circle { radius:PLAYER_RADIUS }));
     let player_material = materials.add(Color::rgb(0.0, 255.0, 0.0));
 
+
+
     // configure and spawn the player
     commands
         .spawn(RigidBody::KinematicPositionBased)
@@ -177,7 +204,8 @@ fn setup(
         })
         .insert(Collider::ball(PLAYER_RADIUS))
         .insert(GravityScale(0.0))
-        .insert(Dominance::group(5))
+        .insert(ColliderMassProperties::Mass(1.0))
+        .insert(LockedAxes::ROTATION_LOCKED)
         .insert(TransformBundle::from(Transform {
             translation: PLAYER_POSITION,
             ..default()
@@ -196,10 +224,69 @@ fn setup(
         .insert(Player);
 }
 
+fn spawn_enemy(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let enemy_shape = Mesh2dHandle(meshes.add(Circle { radius: ENEMY_RADIUS }));
+    let enemy_material = materials.add(Color::rgb(255.0, 0.0, 0.0));
+
+    // configure and spawn the enemy
+    commands
+        .spawn(RigidBody::Dynamic)
+        .insert(Name::new("Enemy"))
+        .insert(Collider::ball(ENEMY_RADIUS))
+        .insert(GravityScale(0.0))
+        .insert(ColliderMassProperties::Mass(1000.0))
+        .insert(LockedAxes::ROTATION_LOCKED)
+        .insert(TransformBundle::from(Transform {
+            translation: ENEMY_POSITION,
+            ..default()
+        }))
+        .insert(MaterialMesh2dBundle {
+            mesh: enemy_shape,
+            material: enemy_material,
+            ..default()
+        })
+        .insert(InputManagerBundle::with_map(Action::default_input_map()))
+        .insert(Health {
+            current: 1000,
+            max: 1000,
+        })
+        .insert(Xp(0))
+        .insert(Velocity::default())
+        .insert(ExternalForce::default())
+        .insert(ExternalImpulse::default())
+        .insert(Enemy);
+}
+
+// fn spawn_minion(
+//     mut commands: Commands,
+// ) {
+//     commands
+//         .spawn(RigidBody::Dynamic)
+//         .insert(Name::new("Minion"))
+//         .insert(Minion)
+//         .insert(Collider::ball(8.0))
+//         .insert(GravityScale(0.0))
+//         .insert(Dominance::group(0)) // default=0, but listed to be explicit
+//         .insert(ColliderMassProperties::Mass(100.0))
+//         .insert(TransformBundle::from(Transform {
+//             translation: PLAYER_POSITION + Vec3::new(2.0 * PLAYER_RADIUS + 15.0, 2.0 * PLAYER_RADIUS + 15.0, 0.0),
+//             ..default()
+//         }))
+//         .insert(ExternalImpulse::default());
+// }
+
 fn handle_actions(
+    mut commands: Commands,
     time: Res<Time>,
     action_query: Query<&ActionState<Action>, With<Player>>,
     mut controllers: Query<&mut KinematicCharacterController>,
+    player_xform_query: Query<&Transform, With<Player>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for action_state in action_query.iter() {
         let mut new_x = 0.0;
@@ -226,5 +313,67 @@ fn handle_actions(
         for mut controller in controllers.iter_mut() {
             controller.translation = Some(Vec2::new(new_x, new_y));
         }
+
+        if action_state.just_pressed(&Action::Fire) {
+            let minion_shape = Mesh2dHandle(meshes.add(Circle { radius: 10.0 }));
+            let minion_material = materials.add(Color::rgb(0.0, 0.0, 255.0));
+
+            for i in 1..5 {
+
+
+                commands
+                    .spawn(RigidBody::Dynamic)
+                    .insert(Name::new("Minion"))
+                    .insert(Minion)
+                    .insert(Collider::ball(10.0))
+                    .insert(GravityScale(0.0))
+                    .insert(LockedAxes::ROTATION_LOCKED)
+                    .insert(ColliderMassProperties::Mass(100.0))
+                    .insert(TransformBundle::from(Transform {
+                        translation: player_xform_query.single().translation + Vec3::new(2.0 * PLAYER_RADIUS + 15.0, 2.0 * PLAYER_RADIUS + 15.0, 0.0),
+                        ..default()
+                    }))
+                    // .insert(MaterialMesh2dBundle {
+                    //     mesh: minion_shape,
+                    //     material: minion_material,
+                    //     ..default()
+                    // })
+                    .insert(Velocity::default());
+            }
+        }
+    }
+}
+
+fn enemy_movement(
+    time: Res<Time>,
+    player_xform_query: Query<&Transform, With<Player>>,
+    mut enemy_vel_query: Query<&mut Velocity, With<Enemy>>,
+) {
+    let player_xform = player_xform_query.single();
+    let pos_player = player_xform.translation;
+
+    let speed = PLAYER_SPEED * time.delta_seconds();
+
+    // let direction = Vec3::normalize(pos_enemy - pos_player);
+
+    for mut enemy_velocity in enemy_vel_query.iter_mut() {
+        enemy_velocity.linvel = Vec2::new(pos_player.x, pos_player.y) * speed;
+    }
+}
+
+fn minion_movement(
+    time: Res<Time>,
+    enemy_xform_query: Query<&Transform, With<Enemy>>,
+    mut minion_vel_query: Query<&mut Velocity, With<Minion>>,
+) {
+    let enemy_xform = enemy_xform_query.single();
+    let pos_enemy = enemy_xform.translation;
+
+    let speed = PLAYER_SPEED * time.delta_seconds();
+
+    // let direction = Vec3::normalize(pos_enemy - pos_player);
+
+    for mut enemy_velocity in minion_vel_query.iter_mut() {
+        enemy_velocity.linvel = Vec2::new(pos_enemy.x, pos_enemy.y);// * speed;
     }
 }
