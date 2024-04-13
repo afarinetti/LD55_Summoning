@@ -5,7 +5,7 @@ use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::utils::tracing::event;
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_rapier2d::prelude::*;
+use bevy_xpbd_2d::prelude::*;
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
@@ -54,8 +54,8 @@ fn main() {
         .add_plugins(ScreenDiagnosticsPlugin::default())
         .add_plugins(ScreenFrameDiagnosticsPlugin)
         .add_plugins(InputManagerPlugin::<Action>::default())
-        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
-        .add_plugins(RapierDebugRenderPlugin::default())
+        .add_plugins(PhysicsPlugins::default())
+        .add_plugins(PhysicsDebugPlugin::default())
         // events
         .add_event::<SpawnMinionEvent>()
         // systems
@@ -160,7 +160,8 @@ fn setup(
 
     // create the top
     commands
-        .spawn(Collider::cuboid(HALF_WIDTH, 1.0))
+        .spawn(RigidBody::Static)
+        .insert(Collider::rectangle(WINDOW_WIDTH, 1.0))
         .insert(Name::new("Wall_Top"))
         .insert(TransformBundle::from(Transform::from_xyz(
             0.0,
@@ -170,7 +171,8 @@ fn setup(
 
     // create the left wall
     commands
-        .spawn(Collider::cuboid(1.0, HALF_HEIGHT))
+        .spawn(RigidBody::Static)
+        .insert(Collider::rectangle(1.0, WINDOW_HEIGHT))
         .insert(Name::new("Wall_Left"))
         .insert(TransformBundle::from(Transform::from_xyz(
             -HALF_WIDTH,
@@ -180,7 +182,8 @@ fn setup(
 
     // create the right wall
     commands
-        .spawn(Collider::cuboid(1.0, HALF_HEIGHT))
+        .spawn(RigidBody::Static)
+        .insert(Collider::rectangle(1.0, WINDOW_HEIGHT))
         .insert(Name::new("Wall_Right"))
         .insert(TransformBundle::from(Transform::from_xyz(
             HALF_WIDTH, 0.0, 0.0,
@@ -188,7 +191,8 @@ fn setup(
 
     // create the bottom
     commands
-        .spawn(Collider::cuboid(HALF_WIDTH, 1.0))
+        .spawn(RigidBody::Static)
+        .insert(Collider::rectangle(WINDOW_WIDTH, 1.0))
         .insert(Name::new("Wall_Bottom"))
         .insert(TransformBundle::from(Transform::from_xyz(
             0.0,
@@ -203,19 +207,14 @@ fn setup(
 
     // configure and spawn the player
     commands
-        .spawn(RigidBody::KinematicPositionBased)
+        .spawn(RigidBody::Kinematic)
         .insert(Name::new("Player"))
-        .insert(KinematicCharacterController {
-            ..default()
-        })
-        .insert(Collider::ball(PLAYER_RADIUS))
+        // .insert(KinematicCharacterController {
+        //     ..default()
+        // })
+        .insert(Collider::circle(PLAYER_RADIUS))
         .insert(GravityScale(0.0))
-        .insert(ColliderMassProperties::Mass(1.0))
-        // .insert(LockedAxes::ROTATION_LOCKED)
-        .insert(CollisionGroups::new(
-            Group::from_bits(0b001).unwrap(),
-            Group::from_bits(0b010).unwrap()
-        ))
+        .insert(Mass(1.0))
         .insert(TransformBundle::from(Transform {
             translation: PLAYER_POSITION,
             ..default()
@@ -244,15 +243,11 @@ fn spawn_enemy(
 
     // configure and spawn the enemy
     commands
-        .spawn(RigidBody::KinematicPositionBased)
-        .insert(KinematicCharacterController {
-            ..default()
-        })
+        .spawn(RigidBody::Dynamic)
         .insert(Name::new("Enemy"))
-        .insert(Collider::ball(ENEMY_RADIUS))
+        .insert(Collider::circle(ENEMY_RADIUS))
         .insert(GravityScale(0.0))
-        .insert(ColliderMassProperties::Mass(1000.0))
-        // .insert(LockedAxes::ROTATION_LOCKED)
+        .insert(Mass(1000.0))
         .insert(TransformBundle::from(Transform {
             translation: ENEMY_POSITION,
             ..default()
@@ -268,9 +263,6 @@ fn spawn_enemy(
             max: 1000,
         })
         .insert(Xp(0))
-        .insert(Velocity::default())
-        .insert(ExternalForce::default())
-        .insert(ExternalImpulse::default())
         .insert(Enemy);
 }
 
@@ -286,16 +278,13 @@ fn minion_spawner(
 
     for event in er_spawn_minion.read() {
         commands
-            .spawn(RigidBody::KinematicPositionBased)
-            .insert(KinematicCharacterController {
-                ..default()
-            })
+            .spawn(RigidBody::Dynamic)
             .insert(Name::new("Minion"))
             .insert(Minion)
-            .insert(Collider::ball(10.0))
+            .insert(Collider::circle(10.0))
             .insert(GravityScale(0.0))
-            .insert(LockedAxes::ROTATION_LOCKED)
-            .insert(ColliderMassProperties::Mass(100.0))
+            // .insert(LockedAxes::ROTATION_LOCKED)
+            .insert(Mass(100.0))
             .insert(TransformBundle::from(Transform {
                 translation: player_xform_query.single().translation + Vec3::new(2.0 * PLAYER_RADIUS + 10.0 + event.0, 2.0 * PLAYER_RADIUS + 10.0 + event.0, 0.0),
                 ..default()
@@ -306,7 +295,7 @@ fn minion_spawner(
 fn handle_actions(
     time: Res<Time>,
     action_query: Query<&ActionState<Action>, With<Player>>,
-    mut controllers: Query<&mut KinematicCharacterController, With<Player>>,
+    mut player_xform_query: Query<&mut Transform, With<Player>>,
     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
 ) {
     for action_state in action_query.iter() {
@@ -331,8 +320,9 @@ fn handle_actions(
             new_x = speed;
         }
 
-        for mut controller in controllers.iter_mut() {
-            controller.translation = Some(Vec2::new(new_x, new_y));
+        for mut player_xform in player_xform_query.iter_mut() {
+            player_xform.translation.x += new_x;
+            player_xform.translation.y += new_y;
         }
 
         if action_state.just_pressed(&Action::Fire) {
@@ -346,37 +336,34 @@ fn handle_actions(
 fn enemy_movement(
     time: Res<Time>,
     target_query: Query<&Transform, With<Player>>,
-    // mut enemy_vel_query: Query<&mut Velocity, With<Enemy>>,
-    mut chaser_query: Query<(&Transform, &mut KinematicCharacterController), With<Minion>>,
+    mut chaser_query: Query<(&Transform, &mut LinearVelocity), With<Enemy>>,
 ) {
     let pos_target = target_query.single().translation;
 
     let speed = ENEMY_SPEED * time.delta_seconds();
 
-    // for mut enemy_velocity in enemy_vel_query.iter_mut() {
-    //     enemy_velocity.linvel = Vec2::new(pos_target.x, pos_target.y) * speed;
-    // }
-
-    for (transform, mut controller) in chaser_query.iter_mut() {
+    for (transform, mut velocity) in chaser_query.iter_mut() {
         // info!("affecting enemy velocity");
         let pos_chaser = transform.translation;
         let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-        controller.translation = Some(direction * speed);
+        velocity.x += direction.x * speed;
+        velocity.y += direction.y * speed;
     }
 }
 
 fn minion_movement(
     time: Res<Time>,
     target_query: Query<&Transform, With<Enemy>>,
-    mut chaser_query: Query<(&Transform, &mut KinematicCharacterController), With<Minion>>,
+    mut chaser_query: Query<(&Transform, &mut LinearVelocity), With<Minion>>,
 ) {
     let pos_target = target_query.single().translation; // TODO: potentially make this a loop and have the minions attack the closest enemy
 
     let speed = PLAYER_SPEED * time.delta_seconds();
 
-    for (transform, mut controller) in chaser_query.iter_mut() {
+    for (transform, mut velocity) in chaser_query.iter_mut() {
         let pos_chaser = transform.translation;
         let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-        controller.translation = Some(direction * speed);
+        velocity.x += direction.x * speed;
+        velocity.y += direction.y * speed;
     }
 }
