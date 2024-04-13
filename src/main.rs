@@ -22,7 +22,7 @@ const PLAYER_RADIUS: f32 = 25.0;
 const PLAYER_POSITION: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 
 const ENEMY_SPEED: f32 = PLAYER_SPEED * 0.5;
-const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 2.0;
+const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 1.5;
 const ENEMY_POSITION: Vec3 = Vec3::new(WINDOW_WIDTH, WINDOW_HEIGHT, 0.0);
 
 fn main() {
@@ -62,10 +62,10 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Startup, spawn_enemy.after(setup))
         .add_systems(Update, bevy::window::close_on_esc)
-        .add_systems(Update, spawn_minion)
+        .add_systems(Update, minion_spawner)
         .add_systems(Update, handle_actions)
-        .add_systems(Update, enemy_movement.after(handle_actions))
-        .add_systems(Update, minion_movement.after(enemy_movement))
+        .add_systems(Update, enemy_movement)
+        .add_systems(Update, minion_movement)
         // .add_systems(Update, handle_collisions)
         // .add_systems(Update, dev_tools_system)
         // resources
@@ -211,7 +211,11 @@ fn setup(
         .insert(Collider::ball(PLAYER_RADIUS))
         .insert(GravityScale(0.0))
         .insert(ColliderMassProperties::Mass(1.0))
-        .insert(LockedAxes::ROTATION_LOCKED)
+        // .insert(LockedAxes::ROTATION_LOCKED)
+        .insert(CollisionGroups::new(
+            Group::from_bits(0b001).unwrap(),
+            Group::from_bits(0b010).unwrap()
+        ))
         .insert(TransformBundle::from(Transform {
             translation: PLAYER_POSITION,
             ..default()
@@ -240,12 +244,15 @@ fn spawn_enemy(
 
     // configure and spawn the enemy
     commands
-        .spawn(RigidBody::Dynamic)
+        .spawn(RigidBody::KinematicPositionBased)
+        .insert(KinematicCharacterController {
+            ..default()
+        })
         .insert(Name::new("Enemy"))
         .insert(Collider::ball(ENEMY_RADIUS))
         .insert(GravityScale(0.0))
         .insert(ColliderMassProperties::Mass(1000.0))
-        .insert(LockedAxes::ROTATION_LOCKED)
+        // .insert(LockedAxes::ROTATION_LOCKED)
         .insert(TransformBundle::from(Transform {
             translation: ENEMY_POSITION,
             ..default()
@@ -267,7 +274,7 @@ fn spawn_enemy(
         .insert(Enemy);
 }
 
-fn spawn_minion(
+fn minion_spawner(
     mut commands: Commands,
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
     player_xform_query: Query<&Transform, With<Player>>,
@@ -338,35 +345,38 @@ fn handle_actions(
 
 fn enemy_movement(
     time: Res<Time>,
-    player_xform_query: Query<&Transform, With<Player>>,
-    mut enemy_vel_query: Query<&mut Velocity, With<Enemy>>,
+    target_query: Query<&Transform, With<Player>>,
+    // mut enemy_vel_query: Query<&mut Velocity, With<Enemy>>,
+    mut chaser_query: Query<(&Transform, &mut KinematicCharacterController), With<Minion>>,
 ) {
-    let player_xform = player_xform_query.single();
-    let pos_player = player_xform.translation;
+    let pos_target = target_query.single().translation;
 
-    let speed = PLAYER_SPEED * time.delta_seconds();
+    let speed = ENEMY_SPEED * time.delta_seconds();
 
-    // let direction = Vec3::normalize(pos_enemy - pos_player);
+    // for mut enemy_velocity in enemy_vel_query.iter_mut() {
+    //     enemy_velocity.linvel = Vec2::new(pos_target.x, pos_target.y) * speed;
+    // }
 
-    for mut enemy_velocity in enemy_vel_query.iter_mut() {
-        enemy_velocity.linvel = Vec2::new(pos_player.x, pos_player.y) * speed;
+    for (transform, mut controller) in chaser_query.iter_mut() {
+        // info!("affecting enemy velocity");
+        let pos_chaser = transform.translation;
+        let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
+        controller.translation = Some(direction * speed);
     }
 }
 
 fn minion_movement(
     time: Res<Time>,
-    enemy_xform_query: Query<&Transform, With<Enemy>>,
-    mut minion_query: Query<(&Transform, &mut KinematicCharacterController), With<Minion>>,
+    target_query: Query<&Transform, With<Enemy>>,
+    mut chaser_query: Query<(&Transform, &mut KinematicCharacterController), With<Minion>>,
 ) {
-    let enemy_xform = enemy_xform_query.single(); // TODO: potentially make this a loop and have the minions attack the closest enemy
-    let pos_enemy = enemy_xform.translation;
-    let pos_enemy_v2 = Vec2::new(pos_enemy.x, pos_enemy.y);
+    let pos_target = target_query.single().translation; // TODO: potentially make this a loop and have the minions attack the closest enemy
 
     let speed = PLAYER_SPEED * time.delta_seconds();
 
-    for (transform, mut controller) in minion_query.iter_mut() {
-        let pos_minion_v2 = Vec2::new(transform.translation.x, transform.translation.y);
-        let direction = Vec2::normalize(pos_enemy_v2 - pos_minion_v2);
+    for (transform, mut controller) in chaser_query.iter_mut() {
+        let pos_chaser = transform.translation;
+        let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
         controller.translation = Some(direction * speed);
     }
 }
