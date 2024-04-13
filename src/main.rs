@@ -1,9 +1,11 @@
+use std::ptr::addr_of_mut;
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::utils::tracing::event;
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
+use bevy_inspector_egui::egui::debug_text::print;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_xpbd_2d::prelude::*;
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
@@ -17,13 +19,17 @@ const WINDOW_HEIGHT: f32 = 768.0;
 const HALF_HEIGHT: f32 = WINDOW_HEIGHT / 2.0;
 const HALF_WIDTH: f32 = WINDOW_WIDTH / 2.0;
 
-const PLAYER_SPEED: f32 = 600.0;
+const PLAYER_SPEED: f32 = 400.0;
 const PLAYER_RADIUS: f32 = 25.0;
 const PLAYER_POSITION: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 
 const ENEMY_SPEED: f32 = PLAYER_SPEED * 0.5;
 const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 1.5;
 const ENEMY_POSITION: Vec3 = Vec3::new(WINDOW_WIDTH, WINDOW_HEIGHT, 0.0);
+
+const MINION_SPEED: f32 = PLAYER_SPEED * 1.5;
+const MINION_RADIUS: f32 = PLAYER_RADIUS / 2.0;
+
 
 fn main() {
     App::new()
@@ -211,6 +217,7 @@ fn setup(
         .insert(Collider::circle(PLAYER_RADIUS))
         .insert(GravityScale(0.0))
         .insert(Mass(10.0))
+        .insert(LockedAxes::new().lock_rotation())
         .insert(TransformBundle::from(Transform {
             translation: PLAYER_POSITION,
             ..default()
@@ -244,6 +251,10 @@ fn spawn_enemy(
         .insert(Collider::circle(ENEMY_RADIUS))
         .insert(GravityScale(0.0))
         .insert(Mass(1000.0))
+        .insert(Restitution::new(0.0))
+        .insert(LockedAxes::new().lock_rotation())
+        .insert(LinearDamping(0.8))
+        .insert(AngularDamping(1.6))
         .insert(TransformBundle::from(Transform {
             translation: ENEMY_POSITION,
             ..default()
@@ -276,20 +287,19 @@ fn minion_spawner(
 
         let gap = 5.0;
 
-        let minion_x = player_pos.x + PLAYER_RADIUS + (gap + 10.0) * (event.0 + 1.0);
-        let minion_y = player_pos.y + PLAYER_RADIUS + (gap + 10.0) * (event.0 + 1.0);
-
-        // println!("player: x={}, y={}", player_pos.x, player_pos.y);
-        // println!("minion: x={}, y={}", minion_x, minion_y);
-        // println!();
+        let minion_x = player_pos.x + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0);
+        let minion_y = player_pos.y + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0);
 
         commands
             .spawn(Minion)
             .insert(Name::new("Minion"))
             .insert(RigidBody::Dynamic)
-            .insert(Collider::circle(10.0))
+            .insert(Collider::circle(MINION_RADIUS))
             .insert(GravityScale(0.0))
             .insert(Mass(100.0))
+            .insert(LockedAxes::new().lock_rotation())
+            .insert(LinearDamping(0.8))
+            .insert(AngularDamping(1.6))
             .insert(TransformBundle::from(Transform {
                 translation: Vec3::new(minion_x, minion_y, 0.0),
                 ..default()
@@ -326,8 +336,17 @@ fn handle_actions(
         }
 
         for mut position in player_xform_query.iter_mut() {
-            position.x += vel_x;
-            position.y += vel_y;
+            // clamp x position within the window
+            if (position.x + vel_x < HALF_WIDTH - PLAYER_RADIUS)
+                && (position.x + vel_x > -HALF_WIDTH + PLAYER_RADIUS) {
+                position.x += vel_x;
+            }
+
+            // clamp y position within the window
+            if (position.y + vel_y < HALF_HEIGHT - PLAYER_RADIUS)
+                && (position.y + vel_y > -HALF_HEIGHT + PLAYER_RADIUS) {
+                position.y += vel_y;
+            }
         }
 
         if action_state.just_pressed(&Action::Fire) {
@@ -344,14 +363,14 @@ fn enemy_movement(
     mut chaser_query: Query<(&Transform, &mut LinearVelocity), With<Enemy>>,
 ) {
     let pos_target = target_query.single().translation;
-
     let speed = ENEMY_SPEED * time.delta_seconds();
 
-    for (transform, mut velocity) in chaser_query.iter_mut() {
+    for (transform, mut linear_vel) in chaser_query.iter_mut() {
         let pos_chaser = transform.translation;
         let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-        velocity.x += direction.x * speed;
-        velocity.y += direction.y * speed;
+        let _distance = pos_target.distance(pos_chaser) - PLAYER_RADIUS - ENEMY_RADIUS;
+        linear_vel.x += direction.x * speed;
+        linear_vel.y += direction.y * speed;
     }
 }
 
@@ -361,13 +380,13 @@ fn minion_movement(
     mut chaser_query: Query<(&Transform, &mut LinearVelocity), With<Minion>>,
 ) {
     let pos_target = target_query.single().translation; // TODO: potentially make this a loop and have the minions attack the closest enemy
-
     let speed = PLAYER_SPEED * time.delta_seconds();
 
-    for (transform, mut velocity) in chaser_query.iter_mut() {
+    for (transform, mut linear_vel) in chaser_query.iter_mut() {
         let pos_chaser = transform.translation;
         let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-        velocity.x += direction.x * speed;
-        velocity.y += direction.y * speed;
+        let _distance = pos_target.distance(pos_chaser) - MINION_RADIUS - ENEMY_RADIUS;
+        linear_vel.x += direction.x * speed;
+        linear_vel.y += direction.y * speed;
     }
 }
