@@ -1,14 +1,9 @@
-use std::iter;
-use std::ptr::addr_of_mut;
-use bevy::ecs::system::lifetimeless::SCommands;
 use bevy::input::common_conditions::input_toggle_active;
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
-use bevy::render::camera::Viewport;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use bevy::utils::tracing::event;
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
-use bevy_inspector_egui::bevy_egui::EguiContexts;
-use bevy_inspector_egui::egui;
-use bevy_inspector_egui::egui::debug_text::print;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::prelude::*;
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
@@ -48,7 +43,11 @@ fn main() {
             }),
             exit_condition: ExitCondition::OnPrimaryClosed,
             ..default()
-        }))
+        }).set(LogPlugin {
+            filter: "info,wgpu=error,ld55_summoning=debug".into(),
+            level: bevy::log::Level::DEBUG,
+            ..default()
+        }),)
         .add_plugins(
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::F1)),
         )
@@ -57,9 +56,13 @@ fn main() {
         .add_plugins(InputManagerPlugin::<Action>::default())
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
         .add_plugins(RapierDebugRenderPlugin::default())
+        // events
+        .add_event::<SpawnMinionEvent>()
         // systems
         .add_systems(Startup, setup)
         .add_systems(Startup, spawn_enemy.after(setup))
+        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, spawn_minion)
         .add_systems(Update, handle_actions)
         .add_systems(Update, enemy_movement.after(handle_actions))
         .add_systems(Update, minion_movement.after(enemy_movement))
@@ -96,6 +99,9 @@ struct Health {
 
 #[derive(Component)]
 struct Xp(u32);
+
+#[derive(Event)]
+struct SpawnMinionEvent(f32);
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum Action {
@@ -261,32 +267,40 @@ fn spawn_enemy(
         .insert(Enemy);
 }
 
-// fn spawn_minion(
-//     mut commands: Commands,
-// ) {
-//     commands
-//         .spawn(RigidBody::Dynamic)
-//         .insert(Name::new("Minion"))
-//         .insert(Minion)
-//         .insert(Collider::ball(8.0))
-//         .insert(GravityScale(0.0))
-//         .insert(Dominance::group(0)) // default=0, but listed to be explicit
-//         .insert(ColliderMassProperties::Mass(100.0))
-//         .insert(TransformBundle::from(Transform {
-//             translation: PLAYER_POSITION + Vec3::new(2.0 * PLAYER_RADIUS + 15.0, 2.0 * PLAYER_RADIUS + 15.0, 0.0),
-//             ..default()
-//         }))
-//         .insert(ExternalImpulse::default());
-// }
-
-fn handle_actions(
+fn spawn_minion(
     mut commands: Commands,
-    time: Res<Time>,
-    action_query: Query<&ActionState<Action>, With<Player>>,
-    mut controllers: Query<&mut KinematicCharacterController>,
+    mut er_spawn_minion: EventReader<SpawnMinionEvent>,
     player_xform_query: Query<&Transform, With<Player>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let minion_shape = Mesh2dHandle(meshes.add(Circle { radius: 10.0 }));
+    let minion_material = materials.add(Color::rgb(0.0, 0.0, 255.0));
+
+    for event in er_spawn_minion.read() {
+        commands
+            .spawn(RigidBody::KinematicPositionBased)
+            .insert(KinematicCharacterController {
+                ..default()
+            })
+            .insert(Name::new("Minion"))
+            .insert(Minion)
+            .insert(Collider::ball(10.0))
+            .insert(GravityScale(0.0))
+            .insert(LockedAxes::ROTATION_LOCKED)
+            .insert(ColliderMassProperties::Mass(100.0))
+            .insert(TransformBundle::from(Transform {
+                translation: player_xform_query.single().translation + Vec3::new(2.0 * PLAYER_RADIUS + 10.0 + event.0, 2.0 * PLAYER_RADIUS + 10.0 + event.0, 0.0),
+                ..default()
+            }));
+    }
+}
+
+fn handle_actions(
+    time: Res<Time>,
+    action_query: Query<&ActionState<Action>, With<Player>>,
+    mut controllers: Query<&mut KinematicCharacterController, With<Player>>,
+    mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
 ) {
     for action_state in action_query.iter() {
         let mut new_x = 0.0;
@@ -315,30 +329,8 @@ fn handle_actions(
         }
 
         if action_state.just_pressed(&Action::Fire) {
-            let minion_shape = Mesh2dHandle(meshes.add(Circle { radius: 10.0 }));
-            let minion_material = materials.add(Color::rgb(0.0, 0.0, 255.0));
-
-            for i in 1..5 {
-
-
-                commands
-                    .spawn(RigidBody::Dynamic)
-                    .insert(Name::new("Minion"))
-                    .insert(Minion)
-                    .insert(Collider::ball(10.0))
-                    .insert(GravityScale(0.0))
-                    .insert(LockedAxes::ROTATION_LOCKED)
-                    .insert(ColliderMassProperties::Mass(100.0))
-                    .insert(TransformBundle::from(Transform {
-                        translation: player_xform_query.single().translation + Vec3::new(2.0 * PLAYER_RADIUS + 15.0, 2.0 * PLAYER_RADIUS + 15.0, 0.0),
-                        ..default()
-                    }))
-                    // .insert(MaterialMesh2dBundle {
-                    //     mesh: minion_shape,
-                    //     material: minion_material,
-                    //     ..default()
-                    // })
-                    .insert(Velocity::default());
+            for i in 1..6 {
+                ew_spawn_minion.send(SpawnMinionEvent(i as f32));
             }
         }
     }
@@ -364,16 +356,17 @@ fn enemy_movement(
 fn minion_movement(
     time: Res<Time>,
     enemy_xform_query: Query<&Transform, With<Enemy>>,
-    mut minion_vel_query: Query<&mut Velocity, With<Minion>>,
+    mut minion_query: Query<(&Transform, &mut KinematicCharacterController), With<Minion>>,
 ) {
-    let enemy_xform = enemy_xform_query.single();
+    let enemy_xform = enemy_xform_query.single(); // TODO: potentially make this a loop and have the minions attack the closest enemy
     let pos_enemy = enemy_xform.translation;
+    let pos_enemy_v2 = Vec2::new(pos_enemy.x, pos_enemy.y);
 
     let speed = PLAYER_SPEED * time.delta_seconds();
 
-    // let direction = Vec3::normalize(pos_enemy - pos_player);
-
-    for mut enemy_velocity in minion_vel_query.iter_mut() {
-        enemy_velocity.linvel = Vec2::new(pos_enemy.x, pos_enemy.y);// * speed;
+    for (transform, mut controller) in minion_query.iter_mut() {
+        let pos_minion_v2 = Vec2::new(transform.translation.x, transform.translation.y);
+        let direction = Vec2::normalize(pos_enemy_v2 - pos_minion_v2);
+        controller.translation = Some(direction * speed);
     }
 }
