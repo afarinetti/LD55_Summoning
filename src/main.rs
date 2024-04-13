@@ -203,18 +203,14 @@ fn setup(
     let player_shape = Mesh2dHandle(meshes.add(Circle { radius:PLAYER_RADIUS }));
     let player_material = materials.add(Color::rgb(0.0, 255.0, 0.0));
 
-
-
     // configure and spawn the player
     commands
-        .spawn(RigidBody::Kinematic)
+        .spawn(Player)
         .insert(Name::new("Player"))
-        // .insert(KinematicCharacterController {
-        //     ..default()
-        // })
+        .insert(RigidBody::Kinematic)
         .insert(Collider::circle(PLAYER_RADIUS))
         .insert(GravityScale(0.0))
-        .insert(Mass(1.0))
+        .insert(Mass(10.0))
         .insert(TransformBundle::from(Transform {
             translation: PLAYER_POSITION,
             ..default()
@@ -229,8 +225,7 @@ fn setup(
             current: 10,
             max: 10,
         })
-        .insert(Xp(0))
-        .insert(Player);
+        .insert(Xp(0));
 }
 
 fn spawn_enemy(
@@ -243,8 +238,9 @@ fn spawn_enemy(
 
     // configure and spawn the enemy
     commands
-        .spawn(RigidBody::Dynamic)
+        .spawn(Enemy)
         .insert(Name::new("Enemy"))
+        .insert(RigidBody::Dynamic)
         .insert(Collider::circle(ENEMY_RADIUS))
         .insert(GravityScale(0.0))
         .insert(Mass(1000.0))
@@ -262,14 +258,13 @@ fn spawn_enemy(
             current: 1000,
             max: 1000,
         })
-        .insert(Xp(0))
-        .insert(Enemy);
+        .insert(Xp(0));
 }
 
 fn minion_spawner(
     mut commands: Commands,
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
-    player_xform_query: Query<&Transform, With<Player>>,
+    player_pos_query: Query<&Position, With<Player>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
@@ -277,16 +272,26 @@ fn minion_spawner(
     let minion_material = materials.add(Color::rgb(0.0, 0.0, 255.0));
 
     for event in er_spawn_minion.read() {
+        let player_pos = player_pos_query.single();
+
+        let gap = 5.0;
+
+        let minion_x = player_pos.x + PLAYER_RADIUS + (gap + 10.0) * (event.0 + 1.0);
+        let minion_y = player_pos.y + PLAYER_RADIUS + (gap + 10.0) * (event.0 + 1.0);
+
+        // println!("player: x={}, y={}", player_pos.x, player_pos.y);
+        // println!("minion: x={}, y={}", minion_x, minion_y);
+        // println!();
+
         commands
-            .spawn(RigidBody::Dynamic)
+            .spawn(Minion)
             .insert(Name::new("Minion"))
-            .insert(Minion)
+            .insert(RigidBody::Dynamic)
             .insert(Collider::circle(10.0))
             .insert(GravityScale(0.0))
-            // .insert(LockedAxes::ROTATION_LOCKED)
             .insert(Mass(100.0))
             .insert(TransformBundle::from(Transform {
-                translation: player_xform_query.single().translation + Vec3::new(2.0 * PLAYER_RADIUS + 10.0 + event.0, 2.0 * PLAYER_RADIUS + 10.0 + event.0, 0.0),
+                translation: Vec3::new(minion_x, minion_y, 0.0),
                 ..default()
             }));
     }
@@ -295,34 +300,34 @@ fn minion_spawner(
 fn handle_actions(
     time: Res<Time>,
     action_query: Query<&ActionState<Action>, With<Player>>,
-    mut player_xform_query: Query<&mut Transform, With<Player>>,
+    mut player_xform_query: Query<&mut Position, With<Player>>,
     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
 ) {
     for action_state in action_query.iter() {
-        let mut new_x = 0.0;
-        let mut new_y = 0.0;
+        let mut vel_x = 0.0;
+        let mut vel_y = 0.0;
 
         let speed = PLAYER_SPEED * time.delta_seconds();
 
         if action_state.pressed(&Action::Up) {
-            new_y = speed;
+            vel_y = speed;
         }
 
         if action_state.pressed(&Action::Down) {
-            new_y = -speed;
+            vel_y = -speed;
         }
 
         if action_state.pressed(&Action::Left) {
-            new_x = -speed;
+            vel_x = -speed;
         }
 
         if action_state.pressed(&Action::Right) {
-            new_x = speed;
+            vel_x = speed;
         }
 
-        for mut player_xform in player_xform_query.iter_mut() {
-            player_xform.translation.x += new_x;
-            player_xform.translation.y += new_y;
+        for mut position in player_xform_query.iter_mut() {
+            position.x += vel_x;
+            position.y += vel_y;
         }
 
         if action_state.just_pressed(&Action::Fire) {
@@ -343,7 +348,6 @@ fn enemy_movement(
     let speed = ENEMY_SPEED * time.delta_seconds();
 
     for (transform, mut velocity) in chaser_query.iter_mut() {
-        // info!("affecting enemy velocity");
         let pos_chaser = transform.translation;
         let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
         velocity.x += direction.x * speed;
