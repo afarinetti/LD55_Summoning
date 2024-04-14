@@ -8,7 +8,6 @@ use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlu
 use bevy_xpbd_2d::math::Vector;
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
-
 const WINDOW_WIDTH: f32 = 1024.0;
 const WINDOW_HEIGHT: f32 = 768.0;
 
@@ -67,7 +66,7 @@ fn main() {
         )
         .add_plugins(ScreenDiagnosticsPlugin::default())
         .add_plugins(ScreenFrameDiagnosticsPlugin)
-        .add_plugins(InputManagerPlugin::<Action>::default())
+        .add_plugins(InputManagerPlugin::<PlayerAction>::default())
         .add_plugins(PhysicsPlugins::default())
         // .add_plugins(PhysicsDebugPlugin::default())
         // events
@@ -79,6 +78,8 @@ fn main() {
         .add_systems(Update, bevy::window::close_on_esc)
         .add_systems(Update, minion_spawner)
         .add_systems(Update, handle_actions)
+        // .add_systems(Update, handle_actions_touch)
+        // .add_systems(Update, touch_resource)
         .add_systems(Update, enemy_movement)
         .add_systems(Update, minion_movement)
         .add_systems(Update, handle_collisions)
@@ -118,35 +119,26 @@ struct DamageTakenEvent {
 }
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
-enum Action {
+enum PlayerAction {
     // movement
-    Up,
-    Down,
-    Left,
-    Right,
+    Move,
     // abilities
-    Fire,
+    SpawnMinions,
 }
 
-impl Action {
+impl PlayerAction {
     fn default_input_map() -> InputMap<Self> {
         let mut input_map = InputMap::default();
 
-        input_map.insert_one_to_many(Self::Up, [KeyCode::ArrowUp, KeyCode::KeyW]);
-        input_map.insert(Self::Up, GamepadButtonType::DPadUp);
+        // keyboard
+        input_map.insert(Self::Move, VirtualDPad::wasd());
+        input_map.insert(Self::Move, VirtualDPad::arrow_keys());
+        input_map.insert(Self::SpawnMinions, KeyCode::Space);
 
-        input_map.insert_one_to_many(Self::Down, [KeyCode::ArrowDown, KeyCode::KeyS]);
-        input_map.insert(Self::Down, GamepadButtonType::DPadDown);
-
-        input_map.insert_one_to_many(Self::Left, [KeyCode::ArrowLeft, KeyCode::KeyA]);
-        input_map.insert(Self::Left, GamepadButtonType::DPadLeft);
-
-        input_map.insert_one_to_many(Self::Right, [KeyCode::ArrowRight, KeyCode::KeyD]);
-        input_map.insert(Self::Right, GamepadButtonType::DPadRight);
-
-        input_map.insert(Self::Fire, KeyCode::Space);
-        input_map.insert(Self::Fire, GamepadButtonType::South);
-
+        // gamepad
+        input_map.insert(Self::Move, DualAxis::left_stick());
+        input_map.insert(Self::SpawnMinions, GamepadButtonType::South);
+        
         input_map
     }
 }
@@ -223,7 +215,7 @@ fn setup(
             texture: asset_server.load("Sprite-Player.png"),
             ..default()
         })
-        .insert(InputManagerBundle::with_map(Action::default_input_map()))
+        .insert(InputManagerBundle::with_map(PlayerAction::default_input_map()))
         .insert(Health(10))
         .insert(DamageDone(0));
 }
@@ -267,7 +259,7 @@ fn minion_spawner(
             player_pos.x + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0),
             player_pos.y + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0),
         );
-        
+
         debug!("Spawning new minion (#{}) at {}.", event.0, player_pos);
 
         commands
@@ -293,53 +285,75 @@ fn minion_spawner(
 
 fn handle_actions(
     time: Res<Time>,
-    action_query: Query<&ActionState<Action>, With<Player>>,
+    action_query: Query<&ActionState<PlayerAction>, With<Player>>,
     mut player_xform_query: Query<&mut Position, With<Player>>,
     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
 ) {
     for action_state in action_query.iter() {
-        let mut vel_x = 0.0;
-        let mut vel_y = 0.0;
-
         let speed = PLAYER_SPEED * time.delta_seconds();
 
-        if action_state.pressed(&Action::Up) {
-            vel_y = speed;
-        }
+        if action_state.pressed(&PlayerAction::Move) {
+            let move_delta = speed
+                * action_state
+                .clamped_axis_pair(&PlayerAction::Move)
+                .unwrap()
+                .xy();
 
-        if action_state.pressed(&Action::Down) {
-            vel_y = -speed;
-        }
+            if let Ok(mut position) = player_xform_query.get_single_mut() {
+                // clamp x position within the window
+                if (position.x + move_delta.x < HALF_WIDTH - PLAYER_RADIUS)
+                    && (position.x + move_delta.x > -HALF_WIDTH + PLAYER_RADIUS) {
+                    position.x += move_delta.x;
+                }
 
-        if action_state.pressed(&Action::Left) {
-            vel_x = -speed;
-        }
-
-        if action_state.pressed(&Action::Right) {
-            vel_x = speed;
-        }
-
-        for mut position in player_xform_query.iter_mut() {
-            // clamp x position within the window
-            if (position.x + vel_x < HALF_WIDTH - PLAYER_RADIUS)
-                && (position.x + vel_x > -HALF_WIDTH + PLAYER_RADIUS) {
-                position.x += vel_x;
-            }
-
-            // clamp y position within the window
-            if (position.y + vel_y < HALF_HEIGHT - PLAYER_RADIUS)
-                && (position.y + vel_y > -HALF_HEIGHT + PLAYER_RADIUS) {
-                position.y += vel_y;
+                // clamp y position within the window
+                if (position.y + move_delta.y < HALF_HEIGHT - PLAYER_RADIUS)
+                    && (position.y + move_delta.y > -HALF_HEIGHT + PLAYER_RADIUS) {
+                    position.y += move_delta.y;
+                }
             }
         }
 
-        if action_state.just_pressed(&Action::Fire) {
+        if action_state.just_pressed(&PlayerAction::SpawnMinions) {
             for i in 1..6 {
                 ew_spawn_minion.send(SpawnMinionEvent(i as f32));
             }
         }
     }
 }
+
+// fn touch_resource(
+//     touches: Res<Touches>,
+//     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
+// ) {
+//     for finger in touches.iter() {
+//         if touches.just_pressed(finger.id()) {
+//             for i in 1..6 {
+//                 ew_spawn_minion.send(SpawnMinionEvent(i as f32));
+//             }
+//         }
+//     }
+// }
+
+// fn handle_actions_touch(
+//     mut er_touch: EventReader<TouchInput>,
+//     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
+// ) {
+//     for event in er_touch.read() {
+//         for i in 1..6 {
+//             ew_spawn_minion.send(SpawnMinionEvent(i as f32));
+//         }
+//         
+//         // match event.phase {
+//         //     TouchPhase::Ended => {
+//         //         for i in 1..6 {
+//         //             ew_spawn_minion.send(SpawnMinionEvent(i as f32));
+//         //         }
+//         //     }
+//         //     _ => ()
+//         // }
+//     }
+// }
 
 fn enemy_movement(
     time: Res<Time>,
