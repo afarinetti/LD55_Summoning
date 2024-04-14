@@ -176,21 +176,9 @@ fn setup(
     asset_server: Res<AssetServer>
 ) {
     // configure and spawn theS camera
-    let mut camera = Camera2dBundle {
-        // camera: Camera {
-        //     viewport: Some(Viewport {
-        //         physical_position: UVec2::new(0, 0),
-        //         physical_size: UVec2::new(256, 256),
-        //         ..default()
-        //     }),
-        //     ..default()
-        // },
-        ..default()
-    };
-    // camera.projection.scale = 2.0;
-    // camera.transform.rotate_z(0f32.to_radians());
-    commands.spawn((camera, CameraMarker));
-
+    commands.spawn(Camera2dBundle::default())
+        .insert(CameraMarker);
+    
     // create the top
     commands
         .spawn(RigidBody::Static)
@@ -275,10 +263,6 @@ fn spawn_enemy(
         .insert(AngularDamping(1.6))
         .insert(CollisionLayers::new(GameLayer::Enemy, [GameLayer::Player, GameLayer::Minion]))
         .insert(Position(ENEMY_POSITION))
-        // .insert(TransformBundle::from(Transform {
-        //     translation: ENEMY_POSITION,
-        //     ..default()
-        // }))
         .insert(SpriteBundle {
             texture: asset_server.load("Sprite-IceCreamBoss.png"),
             ..default()
@@ -394,7 +378,6 @@ fn enemy_movement(
         for (transform, mut linear_vel) in chaser_query.iter_mut() {
             let pos_chaser = transform.translation;
             let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-            let _distance = pos_target.distance(pos_chaser) - PLAYER_RADIUS - ENEMY_RADIUS;
             linear_vel.x += direction.x * speed;
             linear_vel.y += direction.y * speed;
         }
@@ -408,12 +391,11 @@ fn minion_movement(
 ) {
     if let Ok(pos_xform) = target_query.get_single() {
         let pos_target = pos_xform.translation;
-        let speed = PLAYER_SPEED * time.delta_seconds();
+        let speed = MINION_SPEED * time.delta_seconds();
 
         for (transform, mut linear_vel) in chaser_query.iter_mut() {
             let pos_chaser = transform.translation;
             let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-            let _distance = pos_target.distance(pos_chaser) - MINION_RADIUS - ENEMY_RADIUS;
             linear_vel.x += direction.x * speed;
             linear_vel.y += direction.y * speed;
         }
@@ -464,7 +446,7 @@ fn handle_damage_taken(
 ) {
     for event in er_damage_taken.read() {
         if let Ok(mut health) = health_query.get_mut(event.damaged_entity) {
-            health.current -= event.damage;
+            health.current -= event.damage; // FIXME: damage is being applied every frame not per contact 
             info!(
                 "Entity {:?} takes {:?} damage (final health = {:?})",
                 event.damaged_entity,
