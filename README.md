@@ -1,4 +1,4 @@
-# LD55_Summoning
+# Bomb the slime to survive!
 Ludum Dare 55 Submission (Theme: Summoning)
 
 ## Dependencies

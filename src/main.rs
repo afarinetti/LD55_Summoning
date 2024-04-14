@@ -32,7 +32,6 @@ const ENEMY_POSITION: Vector = Vector::new(
 const MINION_SPEED: f32 = PLAYER_SPEED * 1.5;
 const MINION_RADIUS: f32 = PLAYER_RADIUS / 2.0;
 
-
 fn main() {
     // determine window the present mode based on compilation target
     let present_mode: PresentMode = if cfg!(target_family = "wasm") {
@@ -40,7 +39,7 @@ fn main() {
     } else {
         PresentMode::Immediate  // needed on some linux distros
     };
-    
+
     App::new()
         // plugins
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -53,7 +52,7 @@ fn main() {
                     ..default()
                 },
                 name: Some("BevyApp".to_string()),
-                title: "LD55 - Summoning".to_string(),
+                title: "LD55 - Bomb the slime to survive! (Theme: Summoning)".to_string(),
                 ..default()
             }),
             exit_condition: ExitCondition::OnPrimaryClosed,
@@ -166,7 +165,7 @@ fn setup(
     // configure and spawn theS camera
     commands.spawn(Camera2dBundle::default())
         .insert(CameraMarker);
-    
+
     // create the top
     commands
         .spawn(RigidBody::Static)
@@ -217,7 +216,7 @@ fn setup(
         .insert(Collider::circle(PLAYER_RADIUS))
         .insert(GravityScale(0.0))
         .insert(Mass(10.0))
-        // .insert(LockedAxes::new().lock_rotation())
+        .insert(Restitution::new(0.0))
         .insert(Position(PLAYER_POSITION))
         .insert(CollisionLayers::new(GameLayer::Player, [GameLayer::Enemy]))
         .insert(SpriteBundle {
@@ -242,7 +241,6 @@ fn spawn_enemy(
         .insert(GravityScale(0.0))
         .insert(Mass(1000.0))
         .insert(Restitution::new(0.0))
-        // .insert(LockedAxes::new().lock_rotation())
         .insert(LinearDamping(0.8))
         .insert(AngularDamping(1.6))
         .insert(CollisionLayers::new(GameLayer::Enemy, [GameLayer::Player, GameLayer::Minion]))
@@ -252,7 +250,7 @@ fn spawn_enemy(
             ..default()
         })
         .insert(Health(500))
-        .insert(DamageDone(0));
+        .insert(DamageDone(15));
 }
 
 fn minion_spawner(
@@ -265,9 +263,12 @@ fn minion_spawner(
         let player_pos = player_pos_query.single().translation;
 
         let gap = 5.0;
-
-        let minion_x = player_pos.x + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0);
-        let minion_y = player_pos.y + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0);
+        let minion_pos = Vector::new(
+            player_pos.x + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0),
+            player_pos.y + PLAYER_RADIUS + (gap + MINION_RADIUS) * (event.0 + 1.0),
+        );
+        
+        debug!("Spawning new minion (#{}) at {}.", event.0, player_pos);
 
         commands
             .spawn(Minion)
@@ -275,15 +276,12 @@ fn minion_spawner(
             .insert(RigidBody::Dynamic)
             .insert(Collider::circle(MINION_RADIUS))
             .insert(GravityScale(0.0))
-            .insert(Mass(100.0))
-            // .insert(LockedAxes::new().lock_rotation())
+            .insert(Mass(50.0))
+            .insert(Restitution::new(1.0))
             .insert(LinearDamping(0.8))
             .insert(AngularDamping(1.6))
             .insert(CollisionLayers::new(GameLayer::Minion, [GameLayer::Minion, GameLayer::Enemy]))
-            .insert(TransformBundle::from(Transform {
-                translation: Vec3::new(minion_x, minion_y, 0.0),
-                ..default()
-            }))
+            .insert(Position(minion_pos))
             .insert(SpriteBundle {
                 texture: asset_server.load("Sprite-Bomb.png"),
                 ..default()
@@ -411,7 +409,7 @@ fn handle_damage_taken(
     for event in er_damage_taken.read() {
         if let Ok((mut health, name)) = health_query.get_mut(event.entity) {
             health.0 -= event.damage;
-            info!(
+            debug!(
                 "{} ({:?}) takes {:?} damage (final health = {:?})",
                 name,
                 event.entity,
@@ -419,11 +417,7 @@ fn handle_damage_taken(
                 health.0,
             );
             if health.0 <= 0 {
-                info!(
-                    "{} ({:?}) dies.",
-                    name,
-                    event.entity,
-                );
+                debug!("{} ({:?}) dies.", name, event.entity);
                 commands.entity(event.entity).despawn();
             }
         }
