@@ -442,7 +442,7 @@ fn handle_collisions(
         if !colliding_entities.is_empty() {
             trace!("MINION ({:?}): {:?} --> {:?}", m_entity, damage, colliding_entities);
             for colliding_entity in colliding_entities.iter() {
-                if let Ok(entity) = minion_query.get(*colliding_entity) {
+                if let Ok(_entity) = minion_query.get(*colliding_entity) {
                     trace!("ignoring minion-minion collision.")
                 } else {
                     ew_damage_taken.send(DamageTakenEvent {
