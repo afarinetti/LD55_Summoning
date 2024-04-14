@@ -23,7 +23,7 @@ const PLAYER_POSITION: Vector = Vector::new(
 );
 
 const ENEMY_SPEED: f32 = PLAYER_SPEED * 0.5;
-const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 1.5;
+const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 1.25;
 const ENEMY_POSITION: Vector = Vector::new(
     HALF_WIDTH - ENEMY_RADIUS - 5.0,
     HALF_HEIGHT - ENEMY_RADIUS - 5.0,
@@ -70,7 +70,7 @@ fn main() {
         .add_plugins(ScreenFrameDiagnosticsPlugin)
         .add_plugins(InputManagerPlugin::<Action>::default())
         .add_plugins(PhysicsPlugins::default())
-        .add_plugins(PhysicsDebugPlugin::default())
+        // .add_plugins(PhysicsDebugPlugin::default())
         // events
         .add_event::<SpawnMinionEvent>()
         .add_event::<DamageTakenEvent>()
@@ -94,12 +94,6 @@ fn main() {
 #[derive(Component)]
 struct CameraMarker;
 
-#[derive(Resource)]
-struct GameSettings {
-    current_level: u32,
-    max_time_seconds: u32,
-}
-
 #[derive(Component, Debug)]
 struct Player;
 
@@ -110,23 +104,17 @@ struct Minion;
 struct Enemy;
 
 #[derive(Component, Debug)]
-struct Health {
-    current: i32,
-    max: i32,
-}
+struct Health(i32);
 
 #[derive(Component, Debug, Copy, Clone)]
-struct Damage(i32);
-
-#[derive(Component, Debug)]
-struct Xp(u32);
+struct DamageDone(i32);
 
 #[derive(Event, Debug)]
 struct SpawnMinionEvent(f32);
 
 #[derive(Event, Debug)]
 struct DamageTakenEvent {
-    damaged_entity: Entity,
+    entity: Entity,
     damage: i32,
 }
 
@@ -233,16 +221,12 @@ fn setup(
         .insert(Position(PLAYER_POSITION))
         .insert(CollisionLayers::new(GameLayer::Player, [GameLayer::Enemy]))
         .insert(SpriteBundle {
-            texture: asset_server.load("Sprite-Stomach.png"),
+            texture: asset_server.load("Sprite-Player.png"),
             ..default()
         })
         .insert(InputManagerBundle::with_map(Action::default_input_map()))
-        .insert(Health {
-            current: 10,
-            max: 10,
-        })
-        .insert(Damage(0))
-        .insert(Xp(0));
+        .insert(Health(10))
+        .insert(DamageDone(0));
 }
 
 fn spawn_enemy(
@@ -264,15 +248,11 @@ fn spawn_enemy(
         .insert(CollisionLayers::new(GameLayer::Enemy, [GameLayer::Player, GameLayer::Minion]))
         .insert(Position(ENEMY_POSITION))
         .insert(SpriteBundle {
-            texture: asset_server.load("Sprite-IceCreamBoss.png"),
+            texture: asset_server.load("Sprite-Enemy.png"),
             ..default()
         })
-        .insert(Health {
-            current: 1000,
-            max: 1000,
-        })
-        .insert(Damage(10))
-        .insert(Xp(0));
+        .insert(Health(500))
+        .insert(DamageDone(0));
 }
 
 fn minion_spawner(
@@ -305,14 +285,11 @@ fn minion_spawner(
                 ..default()
             }))
             .insert(SpriteBundle {
-                texture: asset_server.load("Sprite-Lactaid.png"),
+                texture: asset_server.load("Sprite-Bomb.png"),
                 ..default()
             })
-            .insert(Health {
-                current: 100,
-                max: 100,
-            })
-            .insert(Damage(10));
+            .insert(Health(30))
+            .insert(DamageDone(10));
     }
 }
 
@@ -403,38 +380,25 @@ fn minion_movement(
 }
 
 fn handle_collisions(
-    enemy_collision_query: Query<(Entity, &Damage, &CollidingEntities), With<Enemy>>,
-    minion_collision_query: Query<(Entity, &Damage, &CollidingEntities), With<Minion>>,
-    minion_query: Query<Entity, With<Minion>>,
+    mut event_reader_collisions: EventReader<CollisionStarted>,
+    minion_query: Query<&Minion>,
+    damage_done_query: Query<&DamageDone>,
     mut ew_damage_taken: EventWriter<DamageTakenEvent>,
 ) {
-    // boss collisions
-    for (e_entity, damage, colliding_entities) in &enemy_collision_query {
-        if !colliding_entities.is_empty() {
-            trace!("BOSS ({:?}): {:?} --> {:?}", e_entity, damage, colliding_entities);
-            for colliding_entity in colliding_entities.iter() {
-                ew_damage_taken.send(DamageTakenEvent {
-                    damaged_entity: colliding_entity.clone(), // TODO: handle the lifetime properly
-                    damage: damage.0,
-                });
-            }
-        }
-    }
-
-    // minion collisions
-    for (m_entity, damage, colliding_entities) in &minion_collision_query {
-        if !colliding_entities.is_empty() {
-            trace!("MINION ({:?}): {:?} --> {:?}", m_entity, damage, colliding_entities);
-            for colliding_entity in colliding_entities.iter() {
-                if let Ok(_entity) = minion_query.get(*colliding_entity) {
-                    trace!("ignoring minion-minion collision.")
-                } else {
-                    ew_damage_taken.send(DamageTakenEvent {
-                        damaged_entity: colliding_entity.clone(), // TODO: handle the lifetime properly
-                        damage: damage.0,
-                    });
+    for CollisionStarted(entity1, entity2) in event_reader_collisions.read() {
+        if let Ok(damage) = damage_done_query.get(*entity1) {
+            // ignore minion-minion collisions
+            if let Ok(_entity) = minion_query.get(*entity1) { // TODO: there has to be a better way of doing this
+                if let Ok(_entity) = minion_query.get(*entity2) {
+                    trace!("ignoring minion-minion collisions");
+                    continue;
                 }
             }
+
+            ew_damage_taken.send(DamageTakenEvent {
+                entity: entity2.clone(), // TODO: handle the lifetime properly
+                damage: damage.0,
+            });
         }
     }
 }
@@ -442,23 +406,25 @@ fn handle_collisions(
 fn handle_damage_taken(
     mut commands: Commands,
     mut er_damage_taken: EventReader<DamageTakenEvent>,
-    mut health_query: Query<&mut Health, With<Health>>,
+    mut health_query: Query<(&mut Health, &Name), With<Health>>,
 ) {
     for event in er_damage_taken.read() {
-        if let Ok(mut health) = health_query.get_mut(event.damaged_entity) {
-            health.current -= event.damage; // FIXME: damage is being applied every frame not per contact 
+        if let Ok((mut health, name)) = health_query.get_mut(event.entity) {
+            health.0 -= event.damage;
             info!(
-                "Entity {:?} takes {:?} damage (final health = {:?})",
-                event.damaged_entity,
+                "{} ({:?}) takes {:?} damage (final health = {:?})",
+                name,
+                event.entity,
                 event.damage,
-                health.current,
+                health.0,
             );
-            if health.current <= 0 {
+            if health.0 <= 0 {
                 info!(
-                    "Entity {:?} dies.",
-                    event.damaged_entity,
+                    "{} ({:?}) dies.",
+                    name,
+                    event.entity,
                 );
-                commands.entity(event.damaged_entity).despawn();
+                commands.entity(event.entity).despawn();
             }
         }
     }
