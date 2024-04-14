@@ -9,6 +9,7 @@ use bevy_inspector_egui::egui::debug_text::print;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_xpbd_2d::prelude::*;
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
+use bevy_xpbd_2d::math::Vector;
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
 use rand::random;
@@ -21,11 +22,17 @@ const HALF_WIDTH: f32 = WINDOW_WIDTH / 2.0;
 
 const PLAYER_SPEED: f32 = 400.0;
 const PLAYER_RADIUS: f32 = 25.0;
-const PLAYER_POSITION: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+const PLAYER_POSITION: Vector = Vector::new(
+    -HALF_WIDTH + PLAYER_RADIUS + 5.0,
+    -HALF_HEIGHT + PLAYER_RADIUS + 5.0,
+);
 
 const ENEMY_SPEED: f32 = PLAYER_SPEED * 0.5;
 const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 1.5;
-const ENEMY_POSITION: Vec3 = Vec3::new(WINDOW_WIDTH, WINDOW_HEIGHT, 0.0);
+const ENEMY_POSITION: Vector = Vector::new(
+    HALF_WIDTH - ENEMY_RADIUS - 5.0,
+    HALF_HEIGHT - ENEMY_RADIUS - 5.0,
+);
 
 const MINION_SPEED: f32 = PLAYER_SPEED * 1.5;
 const MINION_RADIUS: f32 = PLAYER_RADIUS / 2.0;
@@ -64,6 +71,7 @@ fn main() {
         .add_plugins(PhysicsDebugPlugin::default())
         // events
         .add_event::<SpawnMinionEvent>()
+        .add_event::<DamageTakenEvent>()
         // systems
         .add_systems(Startup, setup)
         .add_systems(Startup, spawn_enemy.after(setup))
@@ -72,9 +80,11 @@ fn main() {
         .add_systems(Update, handle_actions)
         .add_systems(Update, enemy_movement)
         .add_systems(Update, minion_movement)
-        // .add_systems(Update, handle_collisions)
+        .add_systems(Update, handle_collisions)
+        .add_systems(Update, handle_damage_taken)
         // .add_systems(Update, dev_tools_system)
         // resources
+        .insert_resource(SubstepCount(6))
         // start
         .run();
 }
@@ -88,26 +98,35 @@ struct GameSettings {
     max_time_seconds: u32,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct Player;
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct Minion;
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct Enemy;
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct Health {
     current: u32,
     max: u32,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug, Copy, Clone)]
+struct Damage(u32);
+
+#[derive(Component, Debug)]
 struct Xp(u32);
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 struct SpawnMinionEvent(f32);
+
+#[derive(Event, Debug)]
+struct DamageTakenEvent {
+    damaged_entity: Entity,
+    damage: u32,
+}
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum Action {
@@ -143,10 +162,16 @@ impl Action {
     }
 }
 
+#[derive(PhysicsLayer)]
+enum GameLayer {
+    Player, // Layer 0
+    Minion, // Layer 1
+    Enemy,  // Layer 3
+}
+
 fn setup(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>
 ) {
     // configure and spawn theS camera
     let mut camera = Camera2dBundle {
@@ -206,9 +231,6 @@ fn setup(
             0.0,
         )));
 
-    let player_shape = Mesh2dHandle(meshes.add(Circle { radius:PLAYER_RADIUS }));
-    let player_material = materials.add(Color::rgb(0.0, 255.0, 0.0));
-
     // configure and spawn the player
     commands
         .spawn(Player)
@@ -217,14 +239,11 @@ fn setup(
         .insert(Collider::circle(PLAYER_RADIUS))
         .insert(GravityScale(0.0))
         .insert(Mass(10.0))
-        .insert(LockedAxes::new().lock_rotation())
-        .insert(TransformBundle::from(Transform {
-            translation: PLAYER_POSITION,
-            ..default()
-        }))
-        .insert(MaterialMesh2dBundle {
-            mesh: player_shape,
-            material: player_material,
+        // .insert(LockedAxes::new().lock_rotation())
+        .insert(Position(PLAYER_POSITION))
+        .insert(CollisionLayers::new(GameLayer::Player, [GameLayer::Enemy]))
+        .insert(SpriteBundle {
+            texture: asset_server.load("Sprite-Stomach.png"),
             ..default()
         })
         .insert(InputManagerBundle::with_map(Action::default_input_map()))
@@ -232,17 +251,14 @@ fn setup(
             current: 10,
             max: 10,
         })
+        .insert(Damage(0))
         .insert(Xp(0));
 }
 
 fn spawn_enemy(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
-    let enemy_shape = Mesh2dHandle(meshes.add(Circle { radius: ENEMY_RADIUS }));
-    let enemy_material = materials.add(Color::rgb(255.0, 0.0, 0.0));
-
     // configure and spawn the enemy
     commands
         .spawn(Enemy)
@@ -252,38 +268,35 @@ fn spawn_enemy(
         .insert(GravityScale(0.0))
         .insert(Mass(1000.0))
         .insert(Restitution::new(0.0))
-        .insert(LockedAxes::new().lock_rotation())
+        // .insert(LockedAxes::new().lock_rotation())
         .insert(LinearDamping(0.8))
         .insert(AngularDamping(1.6))
-        .insert(TransformBundle::from(Transform {
-            translation: ENEMY_POSITION,
-            ..default()
-        }))
-        .insert(MaterialMesh2dBundle {
-            mesh: enemy_shape,
-            material: enemy_material,
+        .insert(CollisionLayers::new(GameLayer::Enemy, [GameLayer::Player, GameLayer::Minion]))
+        .insert(Position(ENEMY_POSITION))
+        // .insert(TransformBundle::from(Transform {
+        //     translation: ENEMY_POSITION,
+        //     ..default()
+        // }))
+        .insert(SpriteBundle {
+            texture: asset_server.load("Sprite-IceCreamBoss.png"),
             ..default()
         })
-        .insert(InputManagerBundle::with_map(Action::default_input_map()))
         .insert(Health {
             current: 1000,
             max: 1000,
         })
+        .insert(Damage(10))
         .insert(Xp(0));
 }
 
 fn minion_spawner(
     mut commands: Commands,
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
-    player_pos_query: Query<&Position, With<Player>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    player_pos_query: Query<&Transform, With<Player>>,
+    asset_server: Res<AssetServer>,
 ) {
-    let minion_shape = Mesh2dHandle(meshes.add(Circle { radius: 10.0 }));
-    let minion_material = materials.add(Color::rgb(0.0, 0.0, 255.0));
-
     for event in er_spawn_minion.read() {
-        let player_pos = player_pos_query.single();
+        let player_pos = player_pos_query.single().translation;
 
         let gap = 5.0;
 
@@ -297,13 +310,23 @@ fn minion_spawner(
             .insert(Collider::circle(MINION_RADIUS))
             .insert(GravityScale(0.0))
             .insert(Mass(100.0))
-            .insert(LockedAxes::new().lock_rotation())
+            // .insert(LockedAxes::new().lock_rotation())
             .insert(LinearDamping(0.8))
             .insert(AngularDamping(1.6))
+            .insert(CollisionLayers::new(GameLayer::Minion, [GameLayer::Minion, GameLayer::Enemy]))
             .insert(TransformBundle::from(Transform {
                 translation: Vec3::new(minion_x, minion_y, 0.0),
                 ..default()
-            }));
+            }))
+            .insert(SpriteBundle {
+                texture: asset_server.load("Sprite-Lactaid.png"),
+                ..default()
+            })
+            .insert(Health {
+                current: 100,
+                max: 100,
+            })
+            .insert(Damage(10));
     }
 }
 
@@ -362,15 +385,17 @@ fn enemy_movement(
     target_query: Query<&Transform, With<Player>>,
     mut chaser_query: Query<(&Transform, &mut LinearVelocity), With<Enemy>>,
 ) {
-    let pos_target = target_query.single().translation;
-    let speed = ENEMY_SPEED * time.delta_seconds();
+    if let Ok(pos_xform) = target_query.get_single() {
+        let pos_target = pos_xform.translation;
+        let speed = ENEMY_SPEED * time.delta_seconds();
 
-    for (transform, mut linear_vel) in chaser_query.iter_mut() {
-        let pos_chaser = transform.translation;
-        let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-        let _distance = pos_target.distance(pos_chaser) - PLAYER_RADIUS - ENEMY_RADIUS;
-        linear_vel.x += direction.x * speed;
-        linear_vel.y += direction.y * speed;
+        for (transform, mut linear_vel) in chaser_query.iter_mut() {
+            let pos_chaser = transform.translation;
+            let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
+            let _distance = pos_target.distance(pos_chaser) - PLAYER_RADIUS - ENEMY_RADIUS;
+            linear_vel.x += direction.x * speed;
+            linear_vel.y += direction.y * speed;
+        }
     }
 }
 
@@ -379,14 +404,79 @@ fn minion_movement(
     target_query: Query<&Transform, With<Enemy>>,
     mut chaser_query: Query<(&Transform, &mut LinearVelocity), With<Minion>>,
 ) {
-    let pos_target = target_query.single().translation; // TODO: potentially make this a loop and have the minions attack the closest enemy
-    let speed = PLAYER_SPEED * time.delta_seconds();
+    if let Ok(pos_xform) = target_query.get_single() {
+        let pos_target = pos_xform.translation;
+        let speed = PLAYER_SPEED * time.delta_seconds();
 
-    for (transform, mut linear_vel) in chaser_query.iter_mut() {
-        let pos_chaser = transform.translation;
-        let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
-        let _distance = pos_target.distance(pos_chaser) - MINION_RADIUS - ENEMY_RADIUS;
-        linear_vel.x += direction.x * speed;
-        linear_vel.y += direction.y * speed;
+        for (transform, mut linear_vel) in chaser_query.iter_mut() {
+            let pos_chaser = transform.translation;
+            let direction = Vec2::normalize(pos_target.xy() - pos_chaser.xy());
+            let _distance = pos_target.distance(pos_chaser) - MINION_RADIUS - ENEMY_RADIUS;
+            linear_vel.x += direction.x * speed;
+            linear_vel.y += direction.y * speed;
+        }
     }
 }
+
+fn handle_collisions(
+    enemy_collision_query: Query<(Entity, &Damage, &CollidingEntities), With<Enemy>>,
+    minion_collision_query: Query<(Entity, &Damage, &CollidingEntities), With<Minion>>,
+    minion_query: Query<Entity, With<Minion>>,
+    mut ew_damage_taken: EventWriter<DamageTakenEvent>,
+) {
+    // boss collisions
+    for (e_entity, damage, colliding_entities) in &enemy_collision_query {
+        if !colliding_entities.is_empty() {
+            trace!("BOSS ({:?}): {:?} --> {:?}", e_entity, damage, colliding_entities);
+            for colliding_entity in colliding_entities.iter() {
+                ew_damage_taken.send(DamageTakenEvent {
+                    damaged_entity: colliding_entity.clone(), // TODO: handle the lifetime properly
+                    damage: damage.0,
+                });
+            }
+        }
+    }
+
+    // minion collisions
+    for (m_entity, damage, colliding_entities) in &minion_collision_query {
+        if !colliding_entities.is_empty() {
+            trace!("MINION ({:?}): {:?} --> {:?}", m_entity, damage, colliding_entities);
+            for colliding_entity in colliding_entities.iter() {
+                if let Ok(entity) = minion_query.get(*colliding_entity) {
+                    trace!("ignoring minion-minion collision.")
+                } else {
+                    ew_damage_taken.send(DamageTakenEvent {
+                        damaged_entity: colliding_entity.clone(), // TODO: handle the lifetime properly
+                        damage: damage.0,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn handle_damage_taken(
+    mut commands: Commands,
+    mut er_damage_taken: EventReader<DamageTakenEvent>,
+    mut health_query: Query<&mut Health, With<Health>>,
+) {
+    for event in er_damage_taken.read() {
+        if let Ok(mut health) = health_query.get_mut(event.damaged_entity) {
+            health.current -= event.damage;
+            info!(
+                "Entity {:?} takes {:?} damage (final health = {:?})",
+                event.damaged_entity,
+                event.damage,
+                health.current,
+            );
+            if health.current <= 0 {
+                info!(
+                    "Entity {:?} dies.",
+                    event.damaged_entity,
+                );
+                commands.entity(event.damaged_entity).despawn();
+            }
+        }
+    }
+}
+

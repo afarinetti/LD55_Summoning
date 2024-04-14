@@ -10,6 +10,8 @@ authors = ["Antonio Farinetti", "Michelle Farinetti", "William Farinetti"]
 [dependencies]
 bevy = { version = "0.13.2", features = ["dynamic_linking"] }
 bevy_xpbd_2d = "0.4.2"
+#bevy_xml = "0.2.0"
+#bevy_sprite3d = "2.8.0" # only because bevy_xml requires it for some reason
 leafwing-input-manager = "0.13.3"
 leafwing_abilities = "0.7.0"
 bevy-inspector-egui = "0.23.4"
