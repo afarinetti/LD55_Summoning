@@ -1,18 +1,13 @@
-use std::ptr::addr_of_mut;
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
-use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
-use bevy::utils::tracing::event;
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
-use bevy_inspector_egui::egui::debug_text::print;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_xpbd_2d::prelude::*;
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
 use bevy_xpbd_2d::math::Vector;
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
-use rand::random;
 
 const WINDOW_WIDTH: f32 = 1024.0;
 const WINDOW_HEIGHT: f32 = 768.0;
@@ -109,12 +104,12 @@ struct Enemy;
 
 #[derive(Component, Debug)]
 struct Health {
-    current: u32,
-    max: u32,
+    current: i32,
+    max: i32,
 }
 
 #[derive(Component, Debug, Copy, Clone)]
-struct Damage(u32);
+struct Damage(i32);
 
 #[derive(Component, Debug)]
 struct Xp(u32);
@@ -125,7 +120,7 @@ struct SpawnMinionEvent(f32);
 #[derive(Event, Debug)]
 struct DamageTakenEvent {
     damaged_entity: Entity,
-    damage: u32,
+    damage: i32,
 }
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
