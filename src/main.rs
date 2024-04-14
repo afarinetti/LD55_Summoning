@@ -34,11 +34,18 @@ const MINION_RADIUS: f32 = PLAYER_RADIUS / 2.0;
 
 
 fn main() {
+    // determine window the present mode based on compilation target
+    let present_mode: PresentMode = if cfg!(target_family = "wasm") {
+        PresentMode::Fifo       // required for wasm builds
+    } else {
+        PresentMode::Immediate  // needed on some linux distros
+    };
+    
     App::new()
         // plugins
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                // present_mode: PresentMode::Immediate,
+                present_mode,
                 resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
                 resizable: false,
                 enabled_buttons: EnabledButtons {
