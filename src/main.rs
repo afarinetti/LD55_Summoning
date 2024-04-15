@@ -136,7 +136,8 @@ struct SpawnMinionEvent(f32);
 
 #[derive(Event, Debug)]
 struct DamageTakenEvent {
-    entity: Entity,
+    giver: Entity,
+    receiver: Entity,
     amount: i32,
 }
 
@@ -463,7 +464,6 @@ fn minion_spawner(
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
     player_pos_query: Query<&Transform, With<Player>>,
     sprite_res: Res<SpriteResource>,
-    // font_res: Res<FontResource>,
     audio_res: Res<AudioResource>,
 ) {
     for event in er_spawn_minion.read() {
@@ -484,7 +484,7 @@ fn minion_spawner(
             .insert(Collider::circle(MINION_RADIUS))
             .insert(GravityScale(0.0))
             .insert(Mass(50.0))
-            // .insert(Restitution::new(1.0))
+            .insert(Restitution::new(1.0))
             .insert(LinearDamping(0.8))
             .insert(AngularDamping(1.6))
             .insert(CollisionLayers::new(GameLayer::Minion, [GameLayer::Minion, GameLayer::Enemy]))
@@ -493,29 +493,7 @@ fn minion_spawner(
                 texture: sprite_res.minion.clone(),
                 ..default()
             })
-            .insert(Health {
-                current: 10,
-                max: 10,
-            })
             .insert(DamageDone(20))
-            // .with_children(|parent| {
-            //     parent.spawn((Text2dBundle {
-            //         text: Text::from_section(
-            //             "HP: ",
-            //             TextStyle {
-            //                 font: font_res.font.clone(),
-            //                 font_size: 18.0,
-            //                 color: Color::WHITE,
-            //             }),
-            //         text_anchor: Anchor::BottomCenter,
-            //         transform: Transform {
-            //             translation: Vec3::new(0.0, MINION_RADIUS + 2.0, 0.0),
-            //             rotation: Quat::default(),
-            //             ..default()
-            //         },
-            //         ..default()
-            //     }, HealthBar));
-            // })
             .insert(AudioBundle {
                 source: audio_res.spawn_minion.clone(),
                 settings: PlaybackSettings {
@@ -684,7 +662,7 @@ fn handle_collisions(
                 }
             }
 
-            info!(
+            debug!(
                 "Sending damage taken event from {:?} to {:?} for {} damage",
                 entity1,
                 entity2,
@@ -692,7 +670,8 @@ fn handle_collisions(
             );
 
             ew_damage_taken.send(DamageTakenEvent {
-                entity: entity2.clone(), // TODO: handle the lifetime properly
+                giver: entity1.clone(),
+                receiver: entity2.clone(), // TODO: handle the lifetime properly
                 amount: damage.0,
             });
         }
@@ -705,27 +684,27 @@ fn handle_damage_taken(
     mut health_query: Query<(&mut Health, &Name), With<Health>>,
     player_query: Query<&Player>,
     enemy_query: Query<&Enemy>,
-    minion_query: Query<&Minion>,
+    minion_query: Query<(&Minion, &Name)>,
     audio_res: Res<AudioResource>
 ) {
     for event in er_damage_taken.read() {
-        info!("Got DamageTakenEvent: {:?} for {} damage.", event.entity, event.amount);
-        if let Ok((mut health,name)) = health_query.get_mut(event.entity) {
+        if let Ok((mut health,name)) = health_query.get_mut(event.receiver) {
             health.current = std::cmp::max(0, health.current - event.amount);
 
             info!(
-                "{} ({:?}) takes {:?} damage (final health = {:?})",
+                "{} ({:?}) takes {:?} damage from {:?} (final health = {:?})",
                 name,
-                event.entity,
+                event.receiver,
+                event.giver,
                 event.amount,
                 health.current,
             );
 
             if health.current <= 0 {
-                info!("{} ({:?}) dies.", name, event.entity);
-                commands.entity(event.entity).despawn();
+                info!("{} ({:?}) dies.", name, event.receiver);
+                commands.entity(event.receiver).despawn_recursive();
 
-                if let Ok(_player) = player_query.get(event.entity) {
+                if let Ok(_player) = player_query.get(event.receiver) {
                     commands.spawn(AudioBundle {
                         source: audio_res.player_die.clone(),
                         settings: PlaybackSettings {
@@ -733,7 +712,7 @@ fn handle_damage_taken(
                             ..default()
                         },
                     });
-                } else if let Ok(_enemy) = enemy_query.get(event.entity) {
+                } else if let Ok(_enemy) = enemy_query.get(event.receiver) {
                     commands.spawn(AudioBundle {
                         source: audio_res.enemy_die.clone(),
                         settings: PlaybackSettings {
@@ -741,15 +720,20 @@ fn handle_damage_taken(
                             ..default()
                         },
                     });
-                } else if let Ok(_minion) = minion_query.get(event.entity) {
-                    commands.spawn(AudioBundle {
-                        source: audio_res.minion_die.clone(),
-                        settings: PlaybackSettings {
-                            volume: Volume::new(0.5),
-                            ..default()
-                        },
-                    });
                 }
+            }
+
+            if let Ok((_minion, name)) = minion_query.get(event.giver) {
+                info!("{} ({:?}) explodes.", name, event.receiver);
+                commands.entity(event.giver).despawn();
+
+                commands.spawn(AudioBundle {
+                    source: audio_res.minion_die.clone(),
+                    settings: PlaybackSettings {
+                        volume: Volume::new(0.5),
+                        ..default()
+                    },
+                });
             }
         }
     }
