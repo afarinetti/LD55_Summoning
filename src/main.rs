@@ -181,7 +181,6 @@ struct SpriteResource {
 
 #[derive(Resource, Debug)]
 struct AudioResource {
-    bgm: Handle<AudioSource>,
     spawn_minion: Handle<AudioSource>,
     player_die: Handle<AudioSource>,
     enemy_die: Handle<AudioSource>,
@@ -362,10 +361,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         mana_gem: asset_server.load("images/Sprite-ManaGem.png"),
     });
 
-    // preload sounds
-    let bgm = asset_server.load("sounds/Action_-_Keep_Moving.ogg");
+    // preload sfx
     commands.insert_resource(AudioResource {
-        bgm: bgm.clone(),
         spawn_minion: asset_server.load("sounds/SFX_-_magic_spell_01.ogg"),
         player_die: asset_server.load("sounds/SFX_-_negative_03.ogg"),
         enemy_die: asset_server.load("sounds/SFX_-_positive_02.ogg"),
@@ -374,7 +371,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         oom: asset_server.load("sounds/SFX_-_negative_04.ogg"),
     });
 
-    // start music
+    // load and start bgm
+    let bgm = asset_server.load("sounds/Action_-_Keep_Moving.ogg");
     commands.spawn(AudioBundle {
         source: bgm.clone(),
         settings: PlaybackSettings {
@@ -627,8 +625,8 @@ fn handle_collisions(
         // mana gem collisions
         if let Ok(mana_gem) = mana_gem_query.get(*entity2) {
             ew_mana_gained.send(ManaGainedEvent {
-                player: entity1.clone(),   // TODO: handle the lifetime properly
-                mana_gem: entity2.clone(), // TODO: handle the lifetime properly
+                player: *entity1,
+                mana_gem: *entity2,
                 amount: mana_gem.0,
             });
         }
@@ -655,8 +653,8 @@ fn handle_collisions(
             );
 
             ew_damage_taken.send(DamageTakenEvent {
-                giver: entity1.clone(),
-                receiver: entity2.clone(), // TODO: handle the lifetime properly
+                giver: *entity1,
+                receiver: *entity2,
                 amount: damage.0,
             });
         }
