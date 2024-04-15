@@ -1,6 +1,7 @@
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_xpbd_2d::prelude::*;
@@ -8,8 +9,8 @@ use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlu
 use bevy_xpbd_2d::math::Vector;
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
-const WINDOW_WIDTH: f32 = 1024.0;
-const WINDOW_HEIGHT: f32 = 768.0;
+const WINDOW_WIDTH: f32 = 768.0;
+const WINDOW_HEIGHT: f32 = 512.0;
 
 const HALF_HEIGHT: f32 = WINDOW_HEIGHT / 2.0;
 const HALF_WIDTH: f32 = WINDOW_WIDTH / 2.0;
@@ -21,14 +22,14 @@ const PLAYER_POSITION: Vector = Vector::new(
     -HALF_HEIGHT + PLAYER_RADIUS + 5.0,
 );
 
-const ENEMY_SPEED: f32 = PLAYER_SPEED * 0.5;
+const ENEMY_SPEED: f32 = 800.0;
 const ENEMY_RADIUS: f32 = PLAYER_RADIUS * 1.25;
 const ENEMY_POSITION: Vector = Vector::new(
     HALF_WIDTH - ENEMY_RADIUS - 5.0,
     HALF_HEIGHT - ENEMY_RADIUS - 5.0,
 );
 
-const MINION_SPEED: f32 = PLAYER_SPEED * 1.5;
+const MINION_SPEED: f32 = ENEMY_SPEED * 2.0;
 const MINION_RADIUS: f32 = PLAYER_RADIUS / 2.0;
 
 fn main() {
@@ -84,6 +85,7 @@ fn main() {
         .add_systems(Update, minion_movement)
         .add_systems(Update, handle_collisions)
         .add_systems(Update, handle_damage_taken)
+        .add_systems(Update, update_health_bars)
         // .add_systems(Update, dev_tools_system)
         // resources
         .insert_resource(SubstepCount(6))
@@ -104,7 +106,10 @@ struct Minion;
 struct Enemy;
 
 #[derive(Component, Debug)]
-struct Health(i32);
+struct Health {
+    current: i32,
+    max: i32,
+}
 
 #[derive(Component, Debug, Copy, Clone)]
 struct DamageDone(i32);
@@ -118,11 +123,12 @@ struct DamageTakenEvent {
     damage: i32,
 }
 
+#[derive(Component, Debug)]
+struct HealthBar;
+
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum PlayerAction {
-    // movement
     Move,
-    // abilities
     SpawnMinions,
 }
 
@@ -138,7 +144,7 @@ impl PlayerAction {
         // gamepad
         input_map.insert(Self::Move, DualAxis::left_stick());
         input_map.insert(Self::SpawnMinions, GamepadButtonType::South);
-        
+
         input_map
     }
 }
@@ -157,6 +163,26 @@ fn setup(
     // configure and spawn theS camera
     commands.spawn(Camera2dBundle::default())
         .insert(CameraMarker);
+
+    // spawn some instructions
+    let font = asset_server.load("fonts/FiraSansExtraCondensed-Regular.ttf");
+    commands.spawn((
+        Text2dBundle {
+            text: Text::from_section(
+                "Move: WASD/Arrows/Left Stick | Spawn Minions: Space Bar/Gamepad A",
+                TextStyle {
+                    font: font.clone(),
+                    font_size: 24.0,
+                    color: Color::WHITE,
+                }),
+            text_anchor: Anchor::TopLeft,
+            transform: Transform {
+                translation: Vec3::new(-HALF_WIDTH, HALF_HEIGHT, 0.0),
+                ..default()
+            },
+            ..default()
+        },
+    ));
 
     // create the top
     commands
@@ -216,7 +242,10 @@ fn setup(
             ..default()
         })
         .insert(InputManagerBundle::with_map(PlayerAction::default_input_map()))
-        .insert(Health(10))
+        .insert(Health{
+            current: 10,
+            max: 10,
+        })
         .insert(DamageDone(0));
 }
 
@@ -241,8 +270,29 @@ fn spawn_enemy(
             texture: asset_server.load("Sprite-Enemy.png"),
             ..default()
         })
-        .insert(Health(500))
-        .insert(DamageDone(15));
+        .insert(Health{
+            current: 500,
+            max: 500,
+        })
+        .insert(DamageDone(15))
+        .with_children(|parent| {
+            parent.spawn((Text2dBundle {
+                text: Text::from_section(
+                    "HP: ",
+                    TextStyle {
+                        font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
+                        font_size: 24.0,
+                        color: Color::WHITE,
+                    }),
+                text_anchor: Anchor::BottomCenter,
+                transform: Transform {
+                    translation: Vec3::new(0.0, ENEMY_RADIUS + 2.0, 0.0),
+                    rotation: Quat::default(),
+                    ..default()
+                },
+                ..default()
+            }, HealthBar));
+        });
 }
 
 fn minion_spawner(
@@ -278,8 +328,11 @@ fn minion_spawner(
                 texture: asset_server.load("Sprite-Bomb.png"),
                 ..default()
             })
-            .insert(Health(30))
-            .insert(DamageDone(10));
+            .insert(Health{
+                current: 20,
+                max: 20,
+            })
+            .insert(DamageDone(15));
     }
 }
 
@@ -343,7 +396,7 @@ fn handle_actions(
 //         for i in 1..6 {
 //             ew_spawn_minion.send(SpawnMinionEvent(i as f32));
 //         }
-//         
+//
 //         // match event.phase {
 //         //     TouchPhase::Ended => {
 //         //         for i in 1..6 {
@@ -421,18 +474,32 @@ fn handle_damage_taken(
     mut health_query: Query<(&mut Health, &Name), With<Health>>,
 ) {
     for event in er_damage_taken.read() {
-        if let Ok((mut health, name)) = health_query.get_mut(event.entity) {
-            health.0 -= event.damage;
+        if let Ok((mut health,name)) = health_query.get_mut(event.entity) {
+            health.current -= event.damage;
             debug!(
                 "{} ({:?}) takes {:?} damage (final health = {:?})",
                 name,
                 event.entity,
                 event.damage,
-                health.0,
+                health.current,
             );
-            if health.0 <= 0 {
+
+            if health.current <= 0 {
                 debug!("{} ({:?}) dies.", name, event.entity);
-                commands.entity(event.entity).despawn();
+                commands.entity(event.entity).despawn_recursive();
+            }
+        }
+    }
+}
+
+fn update_health_bars(
+    mut health_bar_query: Query<&mut Text, With<HealthBar>>,
+    health_query: Query<(&Health, &Children), With<Health>>,
+) {
+    for (health, children) in health_query.iter() {
+        for child in children.iter() {
+            if let Ok(mut text) = health_bar_query.get_mut(*child) {
+                text.sections[0].value = format!("{}", health.current);
             }
         }
     }
