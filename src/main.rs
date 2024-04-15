@@ -75,7 +75,8 @@ fn main() {
         .add_event::<DamageTakenEvent>()
         // systems
         .add_systems(Startup, setup)
-        .add_systems(Startup, spawn_enemy.after(setup))
+        .add_systems(Startup, spawn_player.after(setup))
+        .add_systems(Startup, spawn_enemy.after(spawn_player))
         .add_systems(Update, bevy::window::close_on_esc)
         .add_systems(Update, minion_spawner)
         .add_systems(Update, handle_actions)
@@ -86,6 +87,7 @@ fn main() {
         .add_systems(Update, handle_collisions)
         .add_systems(Update, handle_damage_taken)
         .add_systems(Update, update_health_bars)
+        .add_systems(Update, update_mana_bar)
         // .add_systems(Update, dev_tools_system)
         // resources
         .insert_resource(SubstepCount(6))
@@ -111,6 +113,12 @@ struct Health {
     max: i32,
 }
 
+#[derive(Component, Debug)]
+struct Mana {
+    current: i32,
+    max: i32,
+}
+
 #[derive(Component, Debug, Copy, Clone)]
 struct DamageDone(i32);
 
@@ -125,6 +133,9 @@ struct DamageTakenEvent {
 
 #[derive(Component, Debug)]
 struct HealthBar;
+
+#[derive(Component, Debug)]
+struct ManaBar;
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum PlayerAction {
@@ -165,13 +176,12 @@ fn setup(
         .insert(CameraMarker);
 
     // spawn some instructions
-    let font = asset_server.load("fonts/FiraSansExtraCondensed-Regular.ttf");
     commands.spawn((
         Text2dBundle {
             text: Text::from_section(
-                "Move: WASD/Arrows/Left Stick | Spawn Minions: Space Bar/Gamepad A",
+                "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
                 TextStyle {
-                    font: font.clone(),
+                    font: asset_server.load("fonts/FiraSansExtraCondensed-Regular.ttf"),
                     font_size: 24.0,
                     color: Color::WHITE,
                 }),
@@ -182,6 +192,26 @@ fn setup(
             },
             ..default()
         },
+    ));
+
+    // spawn the player's mana bar
+    commands.spawn((
+        Text2dBundle {
+            text: Text::from_section(
+                "MP: ",
+                TextStyle {
+                    font: asset_server.load("fonts/FiraSansExtraCondensed-Regular.ttf"),
+                    font_size: 24.0,
+                    color: Color::ALICE_BLUE,
+                }),
+            text_anchor: Anchor::BottomLeft,
+            transform: Transform {
+                translation: Vec3::new(-HALF_WIDTH, -HALF_HEIGHT, 0.0),
+                ..default()
+            },
+            ..default()
+        },
+        ManaBar
     ));
 
     // create the top
@@ -225,7 +255,12 @@ fn setup(
             -HALF_HEIGHT,
             0.0,
         )));
+}
 
+fn spawn_player(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
     // configure and spawn the player
     commands
         .spawn(Player)
@@ -242,9 +277,13 @@ fn setup(
             ..default()
         })
         .insert(InputManagerBundle::with_map(PlayerAction::default_input_map()))
-        .insert(Health{
+        .insert(Health {
             current: 10,
             max: 10,
+        })
+        .insert(Mana {
+            current: 100,
+            max: 100,
         })
         .insert(DamageDone(0));
 }
@@ -358,6 +397,7 @@ fn handle_actions(
     time: Res<Time>,
     action_query: Query<&ActionState<PlayerAction>, With<Player>>,
     mut player_xform_query: Query<&mut Position, With<Player>>,
+    mut player_mana_query: Query<&mut Mana, With<Player>>,
     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
 ) {
     for action_state in action_query.iter() {
@@ -386,8 +426,14 @@ fn handle_actions(
         }
 
         if action_state.just_pressed(&PlayerAction::SpawnMinions) {
-            for i in 1..6 {
-                ew_spawn_minion.send(SpawnMinionEvent(i as f32));
+            let mana_cost = 10;
+            if let Ok(mut mana) = player_mana_query.get_single_mut() {
+                if mana.current >= mana_cost {
+                    mana.current -= mana_cost;
+                    for i in 1..2 {
+                        ew_spawn_minion.send(SpawnMinionEvent(i as f32));
+                    }
+                }
             }
         }
     }
@@ -523,3 +569,13 @@ fn update_health_bars(
     }
 }
 
+fn update_mana_bar(
+    mut mana_bar_query: Query<&mut Text, With<ManaBar>>,
+    mana_query: Query<&Mana>,
+) {
+    for mana in mana_query.iter() {
+        if let Ok(mut text) = mana_bar_query.get_single_mut() {
+            text.sections[0].value = format!("MP: {:3}/{:3}", mana.current, mana.max);
+        }
+    }
+}
