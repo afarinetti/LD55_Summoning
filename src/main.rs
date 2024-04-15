@@ -1,4 +1,5 @@
 use std::time::Duration;
+use bevy::audio::{PlaybackMode, Volume};
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
@@ -172,6 +173,17 @@ struct SpriteResource {
     mana_gem: Handle<Image>,
 }
 
+#[derive(Resource, Debug)]
+struct AudioResource {
+    bgm: Handle<AudioSource>,
+    spawn_minion: Handle<AudioSource>,
+    player_die: Handle<AudioSource>,
+    enemy_die: Handle<AudioSource>,
+    minion_die: Handle<AudioSource>,
+    mana_gem: Handle<AudioSource>,
+    oom: Handle<AudioSource>,
+}
+
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum PlayerAction {
     Move,
@@ -336,12 +348,34 @@ fn setup(
             0.0,
         )));
 
-    // pre-load sprites
+    // preload sprites
     commands.insert_resource(SpriteResource {
         player: asset_server.load("images/Sprite-Player.png"),
         enemy: asset_server.load("images/Sprite-Enemy.png"),
         minion: asset_server.load("images/Sprite-Bomb.png"),
         mana_gem: asset_server.load("images/Sprite-ManaGem.png"),
+    });
+
+    // preload sounds
+    let bgm = asset_server.load("sounds/Action_-_Keep_Moving.ogg");
+    commands.insert_resource(AudioResource {
+        bgm: bgm.clone(),
+        spawn_minion: asset_server.load("sounds/SFX_-_magic_spell_01.ogg"),
+        player_die: asset_server.load("sounds/SFX_-_negative_03.ogg"),
+        enemy_die: asset_server.load("sounds/SFX_-_positive_02.ogg"),
+        minion_die: asset_server.load("sounds/SFX_-_hit_basic_01.ogg"),
+        mana_gem: asset_server.load("sounds/SFX_-_coin_10.ogg"),
+        oom: asset_server.load("sounds/SFX_-_negative_04.ogg"),
+    });
+
+    // start music
+    commands.spawn(AudioBundle {
+        source: bgm.clone(),
+        settings: PlaybackSettings {
+            volume: Volume::new(0.25),
+            mode: PlaybackMode::Loop,
+            ..default()
+        },
     });
 }
 
@@ -428,10 +462,11 @@ fn minion_spawner(
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
     player_pos_query: Query<&Transform, With<Player>>,
     sprite_res: Res<SpriteResource>,
-    font_res: Res<FontResource>,
+    // font_res: Res<FontResource>,
+    audio_res: Res<AudioResource>,
 ) {
     for event in er_spawn_minion.read() {
-        let player_pos = player_pos_query.single().translation;
+        let player_pos = player_pos_query.single().translation; // FIXME: this will panic if the player dies in the middle of spawning
 
         let gap = 5.0;
         let minion_pos = Vector::new(
@@ -457,38 +492,47 @@ fn minion_spawner(
                 texture: sprite_res.minion.clone(),
                 ..default()
             })
-            .insert(Health{
-                current: 20,
-                max: 20,
+            .insert(Health {
+                current: 10,
+                max: 10,
             })
-            .insert(DamageDone(15))
-            .with_children(|parent| {
-                parent.spawn((Text2dBundle {
-                    text: Text::from_section(
-                        "HP: ",
-                        TextStyle {
-                            font: font_res.font.clone(),
-                            font_size: 18.0,
-                            color: Color::WHITE,
-                        }),
-                    text_anchor: Anchor::BottomCenter,
-                    transform: Transform {
-                        translation: Vec3::new(0.0, MINION_RADIUS + 2.0, 0.0),
-                        rotation: Quat::default(),
-                        ..default()
-                    },
+            .insert(DamageDone(20))
+            // .with_children(|parent| {
+            //     parent.spawn((Text2dBundle {
+            //         text: Text::from_section(
+            //             "HP: ",
+            //             TextStyle {
+            //                 font: font_res.font.clone(),
+            //                 font_size: 18.0,
+            //                 color: Color::WHITE,
+            //             }),
+            //         text_anchor: Anchor::BottomCenter,
+            //         transform: Transform {
+            //             translation: Vec3::new(0.0, MINION_RADIUS + 2.0, 0.0),
+            //             rotation: Quat::default(),
+            //             ..default()
+            //         },
+            //         ..default()
+            //     }, HealthBar));
+            // })
+            .insert(AudioBundle {
+                source: audio_res.spawn_minion.clone(),
+                settings: PlaybackSettings {
+                    volume: Volume::new(0.5),
                     ..default()
-                }, HealthBar));
+                },
             });
     }
 }
 
 fn handle_actions(
+    mut commands: Commands,
     time: Res<Time>,
     action_query: Query<&ActionState<PlayerAction>, With<Player>>,
     mut player_xform_query: Query<&mut Position, With<Player>>,
     mut player_mana_query: Query<&mut Mana, With<Player>>,
     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
+    audio_res: Res<AudioResource>,
 ) {
     for action_state in action_query.iter() {
         let speed = PLAYER_SPEED * time.delta_seconds();
@@ -520,9 +564,17 @@ fn handle_actions(
             if let Ok(mut mana) = player_mana_query.get_single_mut() { // TODO: move this logic to the minion spawner
                 if mana.current >= mana_cost {
                     mana.current -= mana_cost;
-                    for i in 1..2 {
+                    for i in 1..=2 {
                         ew_spawn_minion.send(SpawnMinionEvent(i as f32));
                     }
+                } else {
+                    commands.spawn(AudioBundle {
+                        source: audio_res.oom.clone(),
+                        settings: PlaybackSettings {
+                            volume: Volume::new(0.5),
+                            ..default()
+                        },
+                    });
                 }
             }
         }
@@ -638,6 +690,10 @@ fn handle_damage_taken(
     mut commands: Commands,
     mut er_damage_taken: EventReader<DamageTakenEvent>,
     mut health_query: Query<(&mut Health, &Name), With<Health>>,
+    player_query: Query<&Player>,
+    enemy_query: Query<&Enemy>,
+    minion_query: Query<&Minion>,
+    audio_res: Res<AudioResource>
 ) {
     for event in er_damage_taken.read() {
         if let Ok((mut health,name)) = health_query.get_mut(event.entity) {
@@ -654,6 +710,32 @@ fn handle_damage_taken(
             if health.current <= 0 {
                 debug!("{} ({:?}) dies.", name, event.entity);
                 commands.entity(event.entity).despawn_recursive();
+                
+                if let Ok(_player) = player_query.get(event.entity) {
+                    commands.spawn(AudioBundle {
+                        source: audio_res.player_die.clone(),
+                        settings: PlaybackSettings {
+                            volume: Volume::new(0.5),
+                            ..default()
+                        },
+                    });
+                } else if let Ok(_enemy) = enemy_query.get(event.entity) {
+                    commands.spawn(AudioBundle {
+                        source: audio_res.enemy_die.clone(),
+                        settings: PlaybackSettings {
+                            volume: Volume::new(0.5),
+                            ..default()
+                        },
+                    });
+                } else if let Ok(_minion) = minion_query.get(event.entity) {
+                    commands.spawn(AudioBundle {
+                        source: audio_res.minion_die.clone(),
+                        settings: PlaybackSettings {
+                            volume: Volume::new(0.5),
+                            ..default()
+                        },
+                    });
+                }
             }
         }
     }
@@ -687,7 +769,7 @@ fn setup_mana_spawning(
     mut commands: Commands,
 ) {
     commands.insert_resource(ManaSpawnConfig {
-        timer: Timer::new(Duration::from_secs(3), TimerMode::Repeating),
+        timer: Timer::new(Duration::from_secs(2), TimerMode::Repeating),
     })
 }
 
@@ -715,7 +797,7 @@ fn mana_spawner(
             .spawn(ManaGem(10))
             .insert(Name::new("ManaGem"))
             .insert(RigidBody::Kinematic)
-            .insert(Collider::circle(10.0))
+            .insert(Collider::circle(20.0))
             .insert(CollisionLayers::new(GameLayer::Gems, [GameLayer::Player]))
             .insert(Position(gem_pos))
             .insert(SpriteBundle {
@@ -729,6 +811,7 @@ fn handle_mana_gained(
     mut commands: Commands,
     mut er_mana_gained: EventReader<ManaGainedEvent>,
     mut mana_query: Query<(&mut Mana, &Name), With<Mana>>,
+    audio_res: Res<AudioResource>,
 ) {
     for event in er_mana_gained.read() {
         if let Ok((mut mana, name)) = mana_query.get_mut(event.player) {
@@ -744,6 +827,14 @@ fn handle_mana_gained(
                 );
 
                 commands.entity(event.mana_gem).despawn();
+                
+                commands.spawn(AudioBundle {
+                    source: audio_res.mana_gem.clone(),
+                    settings: PlaybackSettings {
+                        volume: Volume::new(0.5),
+                        ..default()
+                    },
+                });
             }
         }
     }
