@@ -1,3 +1,4 @@
+use std::cmp;
 use std::time::Duration;
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::input::common_conditions::input_toggle_active;
@@ -689,18 +690,34 @@ fn handle_damage_taken(
 ) {
     for event in er_damage_taken.read() {
         if let Ok((mut health,name)) = health_query.get_mut(event.receiver) {
-            health.current = std::cmp::max(0, health.current - event.amount);
+            // if the event giver is a minion, explode it before dealing the damage.
+            if let Ok((_minion, name)) = minion_query.get(event.giver) {
+                info!("{} ({:?}) explodes dealing {} damage.", name, event.receiver, event.amount);
+                commands.entity(event.giver).despawn();
+
+                commands.spawn(AudioBundle {
+                    source: audio_res.minion_die.clone(),
+                    settings: PlaybackSettings {
+                        volume: Volume::new(0.5),
+                        ..default()
+                    },
+                });
+            }
+            
+            // subtract the damage done, but do not go below zero
+            health.current = cmp::max(0, health.current - event.amount);
 
             info!(
                 "{} ({:?}) takes {:?} damage from {:?} (final health = {:?})",
                 name,
                 event.receiver,
-                event.giver,
                 event.amount,
+                event.giver,
                 health.current,
             );
 
-            if health.current <= 0 {
+            // if the health is equal to zero, the event receiver dies
+            if health.current == 0 {
                 info!("{} ({:?}) dies.", name, event.receiver);
                 commands.entity(event.receiver).despawn_recursive();
 
@@ -721,19 +738,6 @@ fn handle_damage_taken(
                         },
                     });
                 }
-            }
-
-            if let Ok((_minion, name)) = minion_query.get(event.giver) {
-                info!("{} ({:?}) explodes.", name, event.receiver);
-                commands.entity(event.giver).despawn();
-
-                commands.spawn(AudioBundle {
-                    source: audio_res.minion_die.clone(),
-                    settings: PlaybackSettings {
-                        volume: Volume::new(0.5),
-                        ..default()
-                    },
-                });
             }
         }
     }
@@ -815,7 +819,18 @@ fn handle_mana_gained(
     for event in er_mana_gained.read() {
         if let Ok((mut mana, name)) = mana_query.get_mut(event.player) {
             if mana.current < mana.max {
-                mana.current = std::cmp::min(mana.max, mana.current + event.amount);
+                // de-spawn the mana gem
+                commands.entity(event.mana_gem).despawn();
+                commands.spawn(AudioBundle {
+                    source: audio_res.mana_gem.clone(),
+                    settings: PlaybackSettings {
+                        volume: Volume::new(0.5),
+                        ..default()
+                    },
+                });
+                
+                // add the event amount, but do not go over the maximum
+                mana.current = cmp::min(mana.max, mana.current + event.amount);
 
                 info!(
                     "{} ({:?}) gains {:?} mana (final mana total = {:?})",
@@ -824,16 +839,6 @@ fn handle_mana_gained(
                     event.amount,
                     mana.current,
                 );
-
-                commands.entity(event.mana_gem).despawn();
-
-                commands.spawn(AudioBundle {
-                    source: audio_res.mana_gem.clone(),
-                    settings: PlaybackSettings {
-                        volume: Volume::new(0.5),
-                        ..default()
-                    },
-                });
             }
         }
     }
