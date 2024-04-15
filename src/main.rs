@@ -159,6 +159,11 @@ struct ManaGainedEvent {
     amount: i32,
 }
 
+#[derive(Resource, Debug)]
+struct FontResource {
+    font: Handle<Font>,
+}
+
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum PlayerAction {
     Move,
@@ -198,14 +203,20 @@ fn setup(
     commands.spawn(Camera2dBundle::default())
         .insert(CameraMarker);
 
+    // load font(s)
+    let font_handle = asset_server.load("fonts/FiraSansCondensed-Regular.ttf");
+    commands.insert_resource(FontResource {
+        font: font_handle.clone(),
+    });
+
     // spawn some instructions
     commands.spawn((
         Text2dBundle {
             text: Text::from_section(
                 "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
                 TextStyle {
-                    font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
-                    font_size: 24.0,
+                    font: font_handle.clone(),
+                    font_size: 20.0,
                     color: Color::WHITE,
                 }),
             text_anchor: Anchor::TopLeft,
@@ -216,14 +227,31 @@ fn setup(
             ..default()
         },
     ));
-
+    commands.spawn((
+        Text2dBundle {
+            text: Text::from_section(
+                "Don't get hit. Spawn bombs, collect mana gems. Survive.",
+                TextStyle {
+                    font: font_handle.clone(),
+                    font_size: 20.0,
+                    color: Color::WHITE,
+                }),
+            text_anchor: Anchor::TopLeft,
+            transform: Transform {
+                translation: Vec3::new(-HALF_WIDTH, HALF_HEIGHT - 20.0, 0.0),
+                ..default()
+            },
+            ..default()
+        },
+    ));
+    
     // spawn the player's mana bar
     commands.spawn((
         Text2dBundle {
             text: Text::from_section(
                 "MP: ",
                 TextStyle {
-                    font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
+                    font: font_handle.clone(),
                     font_size: 24.0,
                     color: Color::ALICE_BLUE,
                 }),
@@ -314,6 +342,7 @@ fn spawn_player(
 fn spawn_enemy(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    font_res: Res<FontResource>,
 ) {
     // configure and spawn the enemy
     commands
@@ -342,7 +371,7 @@ fn spawn_enemy(
                 text: Text::from_section(
                     "HP: ",
                     TextStyle {
-                        font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
+                        font: font_res.font.clone(),
                         font_size: 24.0,
                         color: Color::WHITE,
                     }),
@@ -362,6 +391,7 @@ fn minion_spawner(
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
     player_pos_query: Query<&Transform, With<Player>>,
     asset_server: Res<AssetServer>,
+    font_res: Res<FontResource>,
 ) {
     for event in er_spawn_minion.read() {
         let player_pos = player_pos_query.single().translation;
@@ -400,7 +430,7 @@ fn minion_spawner(
                     text: Text::from_section(
                         "HP: ",
                         TextStyle {
-                            font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
+                            font: font_res.font.clone(),
                             font_size: 18.0,
                             color: Color::WHITE,
                         }),
@@ -667,7 +697,7 @@ fn handle_mana_gained(
         if let Ok((mut mana, name)) = mana_query.get_mut(event.player) {
             if mana.current < mana.max {
                 mana.current = std::cmp::min(mana.max, mana.current + event.amount);
-                
+
                 debug!(
                     "{} ({:?}) gains {:?} mana (final mana total = {:?})",
                     name,
@@ -675,7 +705,7 @@ fn handle_mana_gained(
                     event.amount,
                     mana.current,
                 );
-                
+
                 commands.entity(event.mana_gem).despawn();
             }
         }
