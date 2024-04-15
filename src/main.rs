@@ -1,5 +1,3 @@
-use std::cmp;
-use std::time::Duration;
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::log::LogPlugin;
@@ -7,12 +5,14 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_xpbd_2d::prelude::*;
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
 use bevy_xpbd_2d::math::Vector;
+use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
 use rand::Rng;
+use std::cmp;
+use std::time::Duration;
 
 const WINDOW_WIDTH: f32 = 768.0;
 const WINDOW_HEIGHT: f32 = 512.0;
@@ -40,33 +40,37 @@ const MINION_RADIUS: f32 = (PLAYER_RADIUS / 2.0) + 5.0;
 fn main() {
     // determine window the present mode based on compilation target
     let present_mode: PresentMode = if cfg!(target_family = "wasm") {
-        PresentMode::Fifo       // required for wasm builds
+        PresentMode::Fifo // required for wasm builds
     } else {
-        PresentMode::Immediate  // needed on some linux distros
+        PresentMode::Immediate // needed on some linux distros
     };
 
     App::new()
         // plugins
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                present_mode,
-                resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
-                resizable: false,
-                enabled_buttons: EnabledButtons {
-                    maximize: false,
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        present_mode,
+                        resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
+                        resizable: false,
+                        enabled_buttons: EnabledButtons {
+                            maximize: false,
+                            ..default()
+                        },
+                        name: Some("BevyApp".to_string()),
+                        title: "LD55 - Bomb the slime to survive! (Theme: Summoning)".to_string(),
+                        ..default()
+                    }),
+                    exit_condition: ExitCondition::OnPrimaryClosed,
                     ..default()
-                },
-                name: Some("BevyApp".to_string()),
-                title: "LD55 - Bomb the slime to survive! (Theme: Summoning)".to_string(),
-                ..default()
-            }),
-            exit_condition: ExitCondition::OnPrimaryClosed,
-            ..default()
-        }).set(LogPlugin {
-            filter: "info,wgpu=error,ld55_summoning=info".into(),
-            level: bevy::log::Level::DEBUG,
-            ..default()
-        }),)
+                })
+                .set(LogPlugin {
+                    filter: "info,wgpu=error,ld55_summoning=info".into(),
+                    level: bevy::log::Level::DEBUG,
+                    ..default()
+                }),
+        )
         .add_plugins(
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::F1)),
         )
@@ -97,7 +101,6 @@ fn main() {
         .add_systems(Update, handle_mana_gained.after(handle_collisions))
         .add_systems(Update, update_mana_bar.after(handle_mana_gained))
         .add_systems(Update, mana_spawner)
-
         // .add_systems(Update, dev_tools_system)
         // resources
         .insert_resource(SubstepCount(6))
@@ -218,12 +221,10 @@ enum GameLayer {
     Gems,   // Layer 4
 }
 
-fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>
-) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // configure and spawn theS camera
-    commands.spawn(Camera2dBundle::default())
+    commands
+        .spawn(Camera2dBundle::default())
         .insert(CameraMarker);
 
     // load and tile background image
@@ -231,8 +232,8 @@ fn setup(
         SpriteBundle {
             texture: asset_server.load("images/Background-Rock.png"),
             sprite: Sprite {
-              custom_size: Some(Vec2::new(WINDOW_WIDTH, WINDOW_WIDTH)),
-              ..default()
+                custom_size: Some(Vec2::new(WINDOW_WIDTH, WINDOW_WIDTH)),
+                ..default()
             },
             transform: Transform {
                 translation: Vec3::new(0.0, 0.0, -1.0),
@@ -254,24 +255,24 @@ fn setup(
     });
 
     // spawn some instructions
-    commands.spawn((
-        Text2dBundle {
-            text: Text::from_section(
-                "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
-                TextStyle {
-                    font: font_handle.clone(),
-                    font_size: 20.0,
-                    color: Color::WHITE,
-                }),
-            text_anchor: Anchor::TopLeft,
-            transform: Transform {
-                translation: Vec3::new(-HALF_WIDTH, HALF_HEIGHT, 0.0),
-                ..default()
+    commands.spawn((Text2dBundle {
+        text: Text::from_section(
+            "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
+            TextStyle {
+                font: font_handle.clone(),
+                font_size: 20.0,
+                color: Color::WHITE,
             },
+        ),
+        text_anchor: Anchor::TopLeft,
+        transform: Transform {
+            translation: Vec3::new(-HALF_WIDTH, HALF_HEIGHT, 0.0),
             ..default()
         },
-    ));
-    commands.spawn(( // TODO: make this a section
+        ..default()
+    },));
+    commands.spawn((
+        // TODO: make this a section
         Text2dBundle {
             text: Text::from_section(
                 "Don't get hit. Spawn bombs, collect mana gems. Survive.",
@@ -279,7 +280,8 @@ fn setup(
                     font: font_handle.clone(),
                     font_size: 20.0,
                     color: Color::WHITE,
-                }),
+                },
+            ),
             text_anchor: Anchor::TopLeft,
             transform: Transform {
                 translation: Vec3::new(-HALF_WIDTH, HALF_HEIGHT - 20.0, 0.0),
@@ -298,7 +300,8 @@ fn setup(
                     font: font_handle.clone(),
                     font_size: 24.0,
                     color: Color::ALICE_BLUE,
-                }),
+                },
+            ),
             text_anchor: Anchor::BottomLeft,
             transform: Transform {
                 translation: Vec3::new(-HALF_WIDTH, -HALF_HEIGHT, 0.0),
@@ -306,7 +309,7 @@ fn setup(
             },
             ..default()
         },
-        ManaBar
+        ManaBar,
     ));
 
     // create the top
@@ -382,10 +385,7 @@ fn setup(
     });
 }
 
-fn spawn_player(
-    mut commands: Commands,
-    sprite_res: Res<SpriteResource>,
-) {
+fn spawn_player(mut commands: Commands, sprite_res: Res<SpriteResource>) {
     // configure and spawn the player
     commands
         .spawn(Player)
@@ -396,12 +396,17 @@ fn spawn_player(
         .insert(Mass(10.0))
         .insert(Restitution::new(0.0))
         .insert(Position(PLAYER_POSITION))
-        .insert(CollisionLayers::new(GameLayer::Player, [GameLayer::Enemy, GameLayer::Gems]))
+        .insert(CollisionLayers::new(
+            GameLayer::Player,
+            [GameLayer::Enemy, GameLayer::Gems],
+        ))
         .insert(SpriteBundle {
             texture: sprite_res.player.clone(),
             ..default()
         })
-        .insert(InputManagerBundle::with_map(PlayerAction::default_input_map()))
+        .insert(InputManagerBundle::with_map(
+            PlayerAction::default_input_map(),
+        ))
         .insert(Health {
             current: 10,
             max: 10,
@@ -429,34 +434,41 @@ fn spawn_enemy(
         .insert(Restitution::new(0.0))
         .insert(LinearDamping(0.8))
         .insert(AngularDamping(1.6))
-        .insert(CollisionLayers::new(GameLayer::Enemy, [GameLayer::Player, GameLayer::Minion]))
+        .insert(CollisionLayers::new(
+            GameLayer::Enemy,
+            [GameLayer::Player, GameLayer::Minion],
+        ))
         .insert(Position(ENEMY_POSITION))
         .insert(SpriteBundle {
             texture: sprite_res.enemy.clone(),
             ..default()
         })
-        .insert(Health{
+        .insert(Health {
             current: 500,
             max: 500,
         })
         .insert(DamageDone(15))
         .with_children(|parent| {
-            parent.spawn((Text2dBundle {
-                text: Text::from_section(
-                    "HP: ",
-                    TextStyle {
-                        font: font_res.font.clone(),
-                        font_size: 24.0,
-                        color: Color::WHITE,
-                    }),
-                text_anchor: Anchor::BottomCenter,
-                transform: Transform {
-                    translation: Vec3::new(0.0, ENEMY_RADIUS + 2.0, 0.0),
-                    rotation: Quat::default(),
+            parent.spawn((
+                Text2dBundle {
+                    text: Text::from_section(
+                        "HP: ",
+                        TextStyle {
+                            font: font_res.font.clone(),
+                            font_size: 24.0,
+                            color: Color::WHITE,
+                        },
+                    ),
+                    text_anchor: Anchor::BottomCenter,
+                    transform: Transform {
+                        translation: Vec3::new(0.0, ENEMY_RADIUS + 2.0, 0.0),
+                        rotation: Quat::default(),
+                        ..default()
+                    },
                     ..default()
                 },
-                ..default()
-            }, HealthBar));
+                HealthBar,
+            ));
         });
 }
 
@@ -487,7 +499,10 @@ fn minion_spawner(
             .insert(Restitution::new(1.0))
             .insert(LinearDamping(0.8))
             .insert(AngularDamping(1.6))
-            .insert(CollisionLayers::new(GameLayer::Minion, [GameLayer::Minion, GameLayer::Enemy]))
+            .insert(CollisionLayers::new(
+                GameLayer::Minion,
+                [GameLayer::Minion, GameLayer::Enemy],
+            ))
             .insert(Position(minion_pos))
             .insert(SpriteBundle {
                 texture: sprite_res.minion.clone(),
@@ -512,20 +527,22 @@ fn handle_actions(
         if action_state.pressed(&PlayerAction::Move) {
             let move_delta = speed
                 * action_state
-                .clamped_axis_pair(&PlayerAction::Move)
-                .unwrap()
-                .xy();
+                    .clamped_axis_pair(&PlayerAction::Move)
+                    .unwrap()
+                    .xy();
 
             if let Ok(mut position) = player_xform_query.get_single_mut() {
                 // clamp x position within the window
                 if (position.x + move_delta.x < HALF_WIDTH - PLAYER_RADIUS)
-                    && (position.x + move_delta.x > -HALF_WIDTH + PLAYER_RADIUS) {
+                    && (position.x + move_delta.x > -HALF_WIDTH + PLAYER_RADIUS)
+                {
                     position.x += move_delta.x;
                 }
 
                 // clamp y position within the window
                 if (position.y + move_delta.y < HALF_HEIGHT - PLAYER_RADIUS)
-                    && (position.y + move_delta.y > -HALF_HEIGHT + PLAYER_RADIUS) {
+                    && (position.y + move_delta.y > -HALF_HEIGHT + PLAYER_RADIUS)
+                {
                     position.y += move_delta.y;
                 }
             }
@@ -533,7 +550,8 @@ fn handle_actions(
 
         if action_state.just_pressed(&PlayerAction::SpawnMinions) {
             let mana_cost = 10;
-            if let Ok(mut mana) = player_mana_query.get_single_mut() { // TODO: move this logic to the minion spawner
+            if let Ok(mut mana) = player_mana_query.get_single_mut() {
+                // TODO: move this logic to the minion spawner
                 if mana.current >= mana_cost {
                     commands.spawn(AudioBundle {
                         source: audio_res.spawn_minion.clone(),
@@ -542,7 +560,7 @@ fn handle_actions(
                             ..default()
                         },
                     });
-                    
+
                     mana.current -= mana_cost;
                     for i in 1..=2 {
                         ew_spawn_minion.send(SpawnMinionEvent(i as f32));
@@ -609,7 +627,7 @@ fn handle_collisions(
         // mana gem collisions
         if let Ok(mana_gem) = mana_gem_query.get(*entity2) {
             ew_mana_gained.send(ManaGainedEvent {
-                player: entity1.clone(), // TODO: handle the lifetime properly
+                player: entity1.clone(),   // TODO: handle the lifetime properly
                 mana_gem: entity2.clone(), // TODO: handle the lifetime properly
                 amount: mana_gem.0,
             });
@@ -623,7 +641,8 @@ fn handle_collisions(
             }
 
             // ignore minion-minion collisions
-            if let Ok(_entity) = minion_query.get(*entity1) { // TODO: there has to be a better way of doing this
+            if let Ok(_entity) = minion_query.get(*entity1) {
+                // TODO: there has to be a better way of doing this
                 if let Ok(_entity) = minion_query.get(*entity2) {
                     trace!("ignoring minion-minion collision");
                     continue;
@@ -632,9 +651,7 @@ fn handle_collisions(
 
             debug!(
                 "Sending damage taken event from {:?} to {:?} for {} damage",
-                entity1,
-                entity2,
-                damage.0
+                entity1, entity2, damage.0
             );
 
             ew_damage_taken.send(DamageTakenEvent {
@@ -653,13 +670,16 @@ fn handle_damage_taken(
     player_query: Query<&Player>,
     enemy_query: Query<&Enemy>,
     minion_query: Query<(&Minion, &Name)>,
-    audio_res: Res<AudioResource>
+    audio_res: Res<AudioResource>,
 ) {
     for event in er_damage_taken.read() {
-        if let Ok((mut health,name)) = health_query.get_mut(event.receiver) {
+        if let Ok((mut health, name)) = health_query.get_mut(event.receiver) {
             // if the event giver is a minion, explode it before dealing the damage.
             if let Ok((_minion, name)) = minion_query.get(event.giver) {
-                info!("{} ({:?}) explodes dealing {} damage.", name, event.receiver, event.amount);
+                info!(
+                    "{} ({:?}) explodes dealing {} damage.",
+                    name, event.receiver, event.amount
+                );
                 commands.entity(event.giver).despawn();
 
                 commands.spawn(AudioBundle {
@@ -670,17 +690,13 @@ fn handle_damage_taken(
                     },
                 });
             }
-            
+
             // subtract the damage done, but do not go below zero
             health.current = cmp::max(0, health.current - event.amount);
 
             info!(
                 "{} ({:?}) takes {:?} damage from {:?} (final health = {:?})",
-                name,
-                event.receiver,
-                event.amount,
-                event.giver,
-                health.current,
+                name, event.receiver, event.amount, event.giver, health.current,
             );
 
             // if the health is equal to zero, the event receiver dies
@@ -723,10 +739,7 @@ fn update_health_bars(
     }
 }
 
-fn update_mana_bar(
-    mut mana_bar_query: Query<&mut Text, With<ManaBar>>,
-    mana_query: Query<&Mana>,
-) {
+fn update_mana_bar(mut mana_bar_query: Query<&mut Text, With<ManaBar>>, mana_query: Query<&Mana>) {
     for mana in mana_query.iter() {
         if let Ok(mut text) = mana_bar_query.get_single_mut() {
             text.sections[0].value = format!("MP: {:3}/{:3}", mana.current, mana.max);
@@ -734,9 +747,7 @@ fn update_mana_bar(
     }
 }
 
-fn setup_mana_spawning(
-    mut commands: Commands,
-) {
+fn setup_mana_spawning(mut commands: Commands) {
     commands.insert_resource(ManaSpawnConfig {
         timer: Timer::new(Duration::from_secs(2), TimerMode::Repeating),
     })
@@ -795,16 +806,13 @@ fn handle_mana_gained(
                         ..default()
                     },
                 });
-                
+
                 // add the event amount, but do not go over the maximum
                 mana.current = cmp::min(mana.max, mana.current + event.amount);
 
                 info!(
                     "{} ({:?}) gains {:?} mana (final mana total = {:?})",
-                    name,
-                    event.player,
-                    event.amount,
-                    mana.current,
+                    name, event.player, event.amount, mana.current,
                 );
             }
         }
