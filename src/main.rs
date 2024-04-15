@@ -371,8 +371,19 @@ fn cleanup_main_menu(
     }
 }
 
-fn setup_game_over(mut commands: Commands, font_res: Res<FontResource>) {
-
+fn setup_game_over(
+    mut commands: Commands,
+    font_res: Res<FontResource>,
+    assets: Res<AssetServer>,
+) {
+    root(c_root, &assets, &mut commands, |p| {
+        nodei(c_no_bg, MainMenuScreen::Node, p, |p| {
+            texti("Game over! You ", c_text, c_pixel_title, MainMenuScreen::Text, p);
+        });
+        nodei(c_no_bg, MainMenuScreen::Node, p, |p| {
+            text_buttoni("Restart", c_button, c_pixel_button, MainMenuScreen::BeginButton, p);
+        });
+    });
 }
 
 fn setup_game(
@@ -395,7 +406,7 @@ fn setup_game(
             ..default()
         },
         ..default()
-    },));
+    },InGameScreen));
     commands.spawn((
         // TODO: make this a section
         Text2dBundle {
@@ -413,7 +424,7 @@ fn setup_game(
                 ..default()
             },
             ..default()
-        },
+        },InGameScreen
     ));
 
     // spawn the player's mana bar
@@ -435,6 +446,7 @@ fn setup_game(
             ..default()
         },
         ManaBar,
+        InGameScreen,
     ));
 
     // create the top
@@ -446,7 +458,7 @@ fn setup_game(
             0.0,
             HALF_HEIGHT,
             0.0,
-        )));
+        ))).insert(InGameScreen);
 
     // create the left wall
     commands
@@ -457,7 +469,7 @@ fn setup_game(
             -HALF_WIDTH,
             0.0,
             0.0,
-        )));
+        ))).insert(InGameScreen);
 
     // create the right wall
     commands
@@ -466,7 +478,7 @@ fn setup_game(
         .insert(Name::new("Wall_Right"))
         .insert(TransformBundle::from(Transform::from_xyz(
             HALF_WIDTH, 0.0, 0.0,
-        )));
+        ))).insert(InGameScreen);
 
     // create the bottom
     commands
@@ -477,7 +489,7 @@ fn setup_game(
             0.0,
             -HALF_HEIGHT,
             0.0,
-        )));
+        ))).insert(InGameScreen);
 }
 
 fn spawn_player(mut commands: Commands, sprite_res: Res<SpriteAssets>) {
@@ -510,7 +522,8 @@ fn spawn_player(mut commands: Commands, sprite_res: Res<SpriteAssets>) {
             current: 50,
             max: 50,
         })
-        .insert(DamageDone(0));
+        .insert(DamageDone(0))
+        .insert(InGameScreen);
 }
 
 fn spawn_enemy(
@@ -564,7 +577,8 @@ fn spawn_enemy(
                 },
                 HealthBar,
             ));
-        });
+        })
+        .insert(InGameScreen);
 }
 
 fn minion_spawner(
@@ -603,7 +617,8 @@ fn minion_spawner(
                 texture: sprite_res.minion.clone(),
                 ..default()
             })
-            .insert(DamageDone(20));
+            .insert(DamageDone(20))
+            .insert(InGameScreen);
     }
 }
 
@@ -896,7 +911,7 @@ fn mana_spawner(
             .insert(SpriteBundle {
                 texture: sprite_res.mana_gem.clone(),
                 ..default()
-            });
+            }).insert(InGameScreen);
     }
 }
 
