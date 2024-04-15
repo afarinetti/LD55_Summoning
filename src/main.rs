@@ -164,6 +164,14 @@ struct FontResource {
     font: Handle<Font>,
 }
 
+#[derive(Resource, Debug)]
+struct SpriteResource {
+    player: Handle<Image>,
+    enemy: Handle<Image>,
+    minion: Handle<Image>,
+    mana_gem: Handle<Image>,
+}
+
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum PlayerAction {
     Move,
@@ -227,7 +235,7 @@ fn setup(
             ..default()
         },
     ));
-    commands.spawn((
+    commands.spawn(( // TODO: make this a section
         Text2dBundle {
             text: Text::from_section(
                 "Don't get hit. Spawn bombs, collect mana gems. Survive.",
@@ -244,7 +252,7 @@ fn setup(
             ..default()
         },
     ));
-    
+
     // spawn the player's mana bar
     commands.spawn((
         Text2dBundle {
@@ -306,11 +314,19 @@ fn setup(
             -HALF_HEIGHT,
             0.0,
         )));
+    
+    // pre-load sprites
+    commands.insert_resource(SpriteResource {
+        player: asset_server.load("images/Sprite-Player.png"),
+        enemy: asset_server.load("images/Sprite-Enemy.png"),
+        minion: asset_server.load("images/Sprite-Bomb.png"),
+        mana_gem: asset_server.load("images/Sprite-ManaGem.png"),
+    });
 }
 
 fn spawn_player(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    sprite_res: Res<SpriteResource>,
 ) {
     // configure and spawn the player
     commands
@@ -324,7 +340,7 @@ fn spawn_player(
         .insert(Position(PLAYER_POSITION))
         .insert(CollisionLayers::new(GameLayer::Player, [GameLayer::Enemy, GameLayer::Gems]))
         .insert(SpriteBundle {
-            texture: asset_server.load("Sprite-Player.png"),
+            texture: sprite_res.player.clone(),
             ..default()
         })
         .insert(InputManagerBundle::with_map(PlayerAction::default_input_map()))
@@ -341,7 +357,7 @@ fn spawn_player(
 
 fn spawn_enemy(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    sprite_res: Res<SpriteResource>,
     font_res: Res<FontResource>,
 ) {
     // configure and spawn the enemy
@@ -358,7 +374,7 @@ fn spawn_enemy(
         .insert(CollisionLayers::new(GameLayer::Enemy, [GameLayer::Player, GameLayer::Minion]))
         .insert(Position(ENEMY_POSITION))
         .insert(SpriteBundle {
-            texture: asset_server.load("Sprite-Enemy.png"),
+            texture: sprite_res.enemy.clone(),
             ..default()
         })
         .insert(Health{
@@ -390,7 +406,7 @@ fn minion_spawner(
     mut commands: Commands,
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
     player_pos_query: Query<&Transform, With<Player>>,
-    asset_server: Res<AssetServer>,
+    sprite_res: Res<SpriteResource>,
     font_res: Res<FontResource>,
 ) {
     for event in er_spawn_minion.read() {
@@ -417,7 +433,7 @@ fn minion_spawner(
             .insert(CollisionLayers::new(GameLayer::Minion, [GameLayer::Minion, GameLayer::Enemy]))
             .insert(Position(minion_pos))
             .insert(SpriteBundle {
-                texture: asset_server.load("Sprite-Bomb.png"),
+                texture: sprite_res.minion.clone(),
                 ..default()
             })
             .insert(Health{
@@ -656,7 +672,7 @@ fn setup_mana_spawning(
 
 fn mana_spawner(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    sprite_res: Res<SpriteResource>,
     time: Res<Time>,
     mut config: ResMut<ManaSpawnConfig>,
     mana_gem_query: Query<&ManaGem>,
@@ -682,7 +698,7 @@ fn mana_spawner(
             .insert(CollisionLayers::new(GameLayer::Gems, [GameLayer::Player]))
             .insert(Position(gem_pos))
             .insert(SpriteBundle {
-                texture: asset_server.load("Sprite-ManaGem.png"),
+                texture: sprite_res.mana_gem.clone(),
                 ..default()
             });
     }
