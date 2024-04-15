@@ -37,6 +37,21 @@ const ENEMY_POSITION: Vector = Vector::new(
 const MINION_SPEED: f32 = ENEMY_SPEED * 2.0;
 const MINION_RADIUS: f32 = (PLAYER_RADIUS / 2.0) + 5.0;
 
+#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
+enum GameState {
+    #[default]
+    MainMenu,
+    InGame,
+    GameOver
+}
+
+// #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
+// enum PausedState {
+//     #[default]
+//     Paused,
+//     Running,
+// }
+
 fn main() {
     // determine window the present mode based on compilation target
     let present_mode: PresentMode = if cfg!(target_family = "wasm") {
@@ -87,48 +102,34 @@ fn main() {
 
         // states
         .init_state::<GameState>()
-        .insert_state(GameState::MainMenu)
-        .init_state::<PausedState>()
-        .insert_state(PausedState::Running)
-
-        // system sets
-        .configure_sets(Update, (
-            MainMenuSet
-                .run_if(in_state(GameState::MainMenu)),
-            InGameSet
-                .run_if(in_state(GameState::InGame)),
-            GameOverSet
-                .run_if(in_state(GameState::GameOver)),
-        ).chain())
-
+        
         // pre-startup systems
         .add_systems(PreStartup, pre_startup_init)
         
-        // startup systems
-        .add_systems(Startup, (
-            // main menu
-            (
-                setup_main_menu,
-            ).in_set(MainMenuSet),
-            // in game
-            (
-                setup_game,
-                spawn_player.after(setup_game),
-                spawn_enemy.after(spawn_player),
-                setup_mana_spawning,
-            ).in_set(InGameSet),
-            // game over
-            (
-                setup_game_over,
-            )
+        // on-enter: main menu
+        .add_systems(OnEnter(GameState::MainMenu), (
+            setup_main_menu,
         ))
 
+        // on-enter: in game
+        .add_systems(OnEnter(GameState::InGame), (
+            setup_game,
+            spawn_player.after(setup_game),
+            spawn_enemy.after(spawn_player),
+            setup_mana_spawning,
+        ))
+
+        // on-enter: game over
+        .add_systems(OnEnter(GameState::GameOver), (
+            setup_game_over,
+        ))
+        
         // update systems
         .add_systems(Update, (
             // main menu
             (
                 bevy::window::close_on_esc,
-            ).in_set(MainMenuSet),
+            ).run_if(in_state(GameState::MainMenu)),
             // in game
             (
                 bevy::window::close_on_esc,
@@ -142,11 +143,11 @@ fn main() {
                 handle_mana_gained.after(handle_collisions),
                 update_mana_bar.after(handle_mana_gained),
                 mana_spawner,
-            ).in_set(InGameSet),
+            ).run_if(in_state(GameState::InGame)),
             // game over
             (
                 bevy::window::close_on_esc,
-            ).in_set(GameOverSet),
+            ).run_if(in_state(GameState::GameOver)),
         ))
 
         // resources
@@ -155,30 +156,6 @@ fn main() {
         // start
         .run();
 }
-
-#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
-enum GameState {
-    #[default]
-    MainMenu,
-    InGame,
-    GameOver
-}
-
-#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
-enum PausedState {
-    #[default]
-    Paused,
-    Running,
-}
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-struct MainMenuSet;
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-struct InGameSet;
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-struct GameOverSet;
 
 #[derive(Component)]
 struct CameraMarker;
@@ -293,6 +270,9 @@ enum GameLayer {
 }
 
 fn pre_startup_init(mut commands: Commands, asset_server: Res<AssetServer>) {
+    // configure and spawn the camera
+    commands.spawn(Camera2dBundle::default());
+    
     // load font(s)
     let font_handle = asset_server.load("fonts/FiraSansCondensed-Regular.ttf");
     commands.insert_resource(FontResource {
@@ -350,11 +330,6 @@ fn setup_game(
     asset_server: Res<AssetServer>,
     font_res: Res<FontResource>,
 ) {
-    // configure and spawn the camera
-    commands
-        .spawn(Camera2dBundle::default())
-        .insert(CameraMarker);
-    
     // spawn some instructions
     commands.spawn((Text2dBundle {
         text: Text::from_section(
