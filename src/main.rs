@@ -58,7 +58,7 @@ fn main() {
             exit_condition: ExitCondition::OnPrimaryClosed,
             ..default()
         }).set(LogPlugin {
-            filter: "info,wgpu=error,ld55_summoning=debug".into(),
+            filter: "info,wgpu=error,ld55_summoning=info".into(),
             level: bevy::log::Level::DEBUG,
             ..default()
         }),)
@@ -332,7 +332,25 @@ fn minion_spawner(
                 current: 20,
                 max: 20,
             })
-            .insert(DamageDone(15));
+            .insert(DamageDone(15))
+            .with_children(|parent| {
+                parent.spawn((Text2dBundle {
+                    text: Text::from_section(
+                        "HP: ",
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
+                            font_size: 18.0,
+                            color: Color::WHITE,
+                        }),
+                    text_anchor: Anchor::BottomCenter,
+                    transform: Transform {
+                        translation: Vec3::new(0.0, MINION_RADIUS + 2.0, 0.0),
+                        rotation: Quat::default(),
+                        ..default()
+                    },
+                    ..default()
+                }, HealthBar));
+            });
     }
 }
 
