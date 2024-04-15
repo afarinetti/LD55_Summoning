@@ -34,7 +34,7 @@ const ENEMY_POSITION: Vector = Vector::new(
 );
 
 const MINION_SPEED: f32 = ENEMY_SPEED * 2.0;
-const MINION_RADIUS: f32 = PLAYER_RADIUS / 2.0;
+const MINION_RADIUS: f32 = (PLAYER_RADIUS / 2.0) + 5.0;
 
 fn main() {
     // determine window the present mode based on compilation target
@@ -483,7 +483,7 @@ fn minion_spawner(
             .insert(Collider::circle(MINION_RADIUS))
             .insert(GravityScale(0.0))
             .insert(Mass(50.0))
-            .insert(Restitution::new(1.0))
+            // .insert(Restitution::new(1.0))
             .insert(LinearDamping(0.8))
             .insert(AngularDamping(1.6))
             .insert(CollisionLayers::new(GameLayer::Minion, [GameLayer::Minion, GameLayer::Enemy]))
@@ -659,28 +659,40 @@ fn handle_collisions(
     mut ew_mana_gained: EventWriter<ManaGainedEvent>,
 ) {
     for CollisionStarted(entity1, entity2) in event_reader_collisions.read() {
-        // damaging collisions
-        if let Ok(damage) = damage_done_query.get(*entity1) {
-            // ignore minion-minion collisions
-            if let Ok(_entity) = minion_query.get(*entity1) { // TODO: there has to be a better way of doing this
-                if let Ok(_entity) = minion_query.get(*entity2) {
-                    trace!("ignoring minion-minion collisions");
-                    continue;
-                }
-            }
-
-            ew_damage_taken.send(DamageTakenEvent {
-                entity: entity2.clone(), // TODO: handle the lifetime properly
-                amount: damage.0,
-            });
-        }
-
         // mana gem collisions
         if let Ok(mana_gem) = mana_gem_query.get(*entity2) {
             ew_mana_gained.send(ManaGainedEvent {
                 player: entity1.clone(), // TODO: handle the lifetime properly
                 mana_gem: entity2.clone(), // TODO: handle the lifetime properly
                 amount: mana_gem.0,
+            });
+        }
+        
+        // damaging collisions
+        if let Ok(damage) = damage_done_query.get(*entity1) {
+            if damage.0 == 0 {
+                trace!("Ignoring a zero damage event");
+                continue;
+            }
+
+            // ignore minion-minion collisions
+            if let Ok(_entity) = minion_query.get(*entity1) { // TODO: there has to be a better way of doing this
+                if let Ok(_entity) = minion_query.get(*entity2) {
+                    trace!("ignoring minion-minion collision");
+                    continue;
+                }
+            }
+            
+            info!(
+                "Sending damage taken event from {:?} to {:?} for {} damage",
+                entity1,
+                entity2,
+                damage.0
+            );
+
+            ew_damage_taken.send(DamageTakenEvent {
+                entity: entity2.clone(), // TODO: handle the lifetime properly
+                amount: damage.0,
             });
         }
     }
@@ -696,10 +708,11 @@ fn handle_damage_taken(
     audio_res: Res<AudioResource>
 ) {
     for event in er_damage_taken.read() {
+        info!("Got DamageTakenEvent: {:?} for {} damage.", event.entity, event.amount);
         if let Ok((mut health,name)) = health_query.get_mut(event.entity) {
             health.current = std::cmp::max(0, health.current - event.amount);
 
-            debug!(
+            info!(
                 "{} ({:?}) takes {:?} damage (final health = {:?})",
                 name,
                 event.entity,
@@ -710,7 +723,7 @@ fn handle_damage_taken(
             if health.current <= 0 {
                 debug!("{} ({:?}) dies.", name, event.entity);
                 commands.entity(event.entity).despawn_recursive();
-                
+
                 if let Ok(_player) = player_query.get(event.entity) {
                     commands.spawn(AudioBundle {
                         source: audio_res.player_die.clone(),
@@ -787,8 +800,9 @@ fn mana_spawner(
     if config.timer.finished() && mana_gem_query.iter().len() <= 10 {
         let mut rng = rand::thread_rng();
 
-        let gem_x = rng.gen_range(-HALF_WIDTH as i32..=HALF_WIDTH as i32) as f32;
-        let gem_y = rng.gen_range(-HALF_HEIGHT as i32..=HALF_HEIGHT as i32) as f32;
+        let gap = 5.0;
+        let gem_x = rng.gen_range(-HALF_WIDTH + gap..=HALF_WIDTH - gap);
+        let gem_y = rng.gen_range(-HALF_HEIGHT + gap..=HALF_HEIGHT - gap);
         let gem_pos = Vector::new(gem_x, gem_y);
 
         debug!("Spawning new mana gem at {}.", gem_pos);
@@ -818,7 +832,7 @@ fn handle_mana_gained(
             if mana.current < mana.max {
                 mana.current = std::cmp::min(mana.max, mana.current + event.amount);
 
-                debug!(
+                info!(
                     "{} ({:?}) gains {:?} mana (final mana total = {:?})",
                     name,
                     event.player,
@@ -827,7 +841,7 @@ fn handle_mana_gained(
                 );
 
                 commands.entity(event.mana_gem).despawn();
-                
+
                 commands.spawn(AudioBundle {
                     source: audio_res.mana_gem.clone(),
                     settings: PlaybackSettings {
