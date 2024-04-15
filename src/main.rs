@@ -181,6 +181,9 @@ fn main() {
         ))
 
         // resources
+        .insert_resource(GameStatus {
+            result: GameResult::None,
+        })
 
         // start
         .run();
@@ -297,16 +300,17 @@ enum GameOverScreen {
     RestartButton,
 }
 
-// enum GameResult {
-//     None,
-//     Win,
-//     Loss,
-// }
-//
-// #[derive(Resource)]
-// struct GameStatus {
-//     result: GameResult,
-// }
+#[derive(Debug)]
+enum GameResult {
+    None,
+    Win,
+    Lose,
+}
+
+#[derive(Resource)]
+struct GameStatus {
+    result: GameResult,
+}
 
 fn pre_startup_init(mut commands: Commands, asset_server: Res<AssetServer>) {
     // configure and spawn the camera
@@ -387,10 +391,11 @@ fn cleanup_in_game_screen(
 fn setup_game_over(
     mut commands: Commands,
     assets: Res<AssetServer>,
+    game_status: ResMut<GameStatus>,
 ) {
     root(c_root, &assets, &mut commands, |p| {
         nodei(c_no_bg, GameOverScreen::Node, p, |p| {
-            texti("Game over! You ", c_text, c_pixel_title, GameOverScreen::Text, p);
+            texti(format!("Game over! You {:?}!", game_status.result), c_text, c_pixel_title, GameOverScreen::Text, p);
         });
         nodei(c_no_bg, GameOverScreen::Node, p, |p| {
             text_buttoni("Restart", c_button, c_pixel_button, GameOverScreen::RestartButton, p);
@@ -824,6 +829,7 @@ fn handle_damage_taken(
     // effects_channel: Res<AudioChannel<EffectsChannel>>
     audio: Res<Audio>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut game_status: ResMut<GameStatus>,
 ) {
     for event in er_damage_taken.read() {
         if let Ok((mut health, name)) = health_query.get_mut(event.receiver) {
@@ -872,6 +878,7 @@ fn handle_damage_taken(
                     commands.insert_resource(AudioResource(handle));
 
                     next_state.set(GameState::GameOver);
+                    game_status.result = GameResult::Lose;
 
                 } else if let Ok(_enemy) = enemy_query.get(event.receiver) {
                     // effects_channel.play(
@@ -885,6 +892,7 @@ fn handle_damage_taken(
                     commands.insert_resource(AudioResource(handle));
 
                     next_state.set(GameState::GameOver);
+                    game_status.result = GameResult::Win;
                 }
             }
         }
