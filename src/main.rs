@@ -465,7 +465,6 @@ fn minion_spawner(
     mut er_spawn_minion: EventReader<SpawnMinionEvent>,
     player_pos_query: Query<&Transform, With<Player>>,
     sprite_res: Res<SpriteResource>,
-    audio_res: Res<AudioResource>,
 ) {
     for event in er_spawn_minion.read() {
         let player_pos = player_pos_query.single().translation; // FIXME: this will panic if the player dies in the middle of spawning
@@ -494,14 +493,7 @@ fn minion_spawner(
                 texture: sprite_res.minion.clone(),
                 ..default()
             })
-            .insert(DamageDone(20))
-            .insert(AudioBundle {
-                source: audio_res.spawn_minion.clone(),
-                settings: PlaybackSettings {
-                    volume: Volume::new(0.5),
-                    ..default()
-                },
-            });
+            .insert(DamageDone(20));
     }
 }
 
@@ -543,6 +535,14 @@ fn handle_actions(
             let mana_cost = 10;
             if let Ok(mut mana) = player_mana_query.get_single_mut() { // TODO: move this logic to the minion spawner
                 if mana.current >= mana_cost {
+                    commands.spawn(AudioBundle {
+                        source: audio_res.spawn_minion.clone(),
+                        settings: PlaybackSettings {
+                            volume: Volume::new(0.5),
+                            ..default()
+                        },
+                    });
+                    
                     mana.current -= mana_cost;
                     for i in 1..=2 {
                         ew_spawn_minion.send(SpawnMinionEvent(i as f32));
@@ -560,39 +560,6 @@ fn handle_actions(
         }
     }
 }
-
-// fn touch_resource(
-//     touches: Res<Touches>,
-//     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
-// ) {
-//     for finger in touches.iter() {
-//         if touches.just_pressed(finger.id()) {
-//             for i in 1..6 {
-//                 ew_spawn_minion.send(SpawnMinionEvent(i as f32));
-//             }
-//         }
-//     }
-// }
-
-// fn handle_actions_touch(
-//     mut er_touch: EventReader<TouchInput>,
-//     mut ew_spawn_minion: EventWriter<SpawnMinionEvent>,
-// ) {
-//     for event in er_touch.read() {
-//         for i in 1..6 {
-//             ew_spawn_minion.send(SpawnMinionEvent(i as f32));
-//         }
-//
-//         // match event.phase {
-//         //     TouchPhase::Ended => {
-//         //         for i in 1..6 {
-//         //             ew_spawn_minion.send(SpawnMinionEvent(i as f32));
-//         //         }
-//         //     }
-//         //     _ => ()
-//         // }
-//     }
-// }
 
 fn enemy_movement(
     time: Res<Time>,
