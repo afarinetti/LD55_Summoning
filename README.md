@@ -1,13 +1,20 @@
 # Bomb the slime to survive!
 Ludum Dare 55 Submission (Theme: Summoning)
 
+## Known Issues
+### Minions
+- Minions can spawn out of bounds
+
+### Player
+- Player cannot die when not moved from initial corner -- physics sleeping?
+
 ## Dependencies
 
 - Rust 1.77.2+
+- See `Cargo.toml` for Rust crate dependencies.
 - `rustup target install wasm32-unknown-unknown`
-- `cargo install wasm-server-runner`
 - `cargo install trunk-ng`
-- ...more... TBD
+- or- `cargo install wasm-server-runner`
 
 ## Build/Run Instructions
 ### Desktop
@@ -17,5 +24,5 @@ Ludum Dare 55 Submission (Theme: Summoning)
 ### Web (Web Assembly)
 
 - `cargo run --target wasm32-unknown-unknown`
-or
-- `trunk-ng serve --open`
+- or- `trunk-ng build` and `trunk-ng serve --open`
+- or- `trunk-ng build` and `npx serve dist` (requires npm and npx installed)
