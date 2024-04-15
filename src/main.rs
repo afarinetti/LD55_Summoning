@@ -1,3 +1,4 @@
+use std::time::Duration;
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
@@ -9,6 +10,8 @@ use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlu
 use bevy_xpbd_2d::math::Vector;
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
+use rand::Rng;
+
 const WINDOW_WIDTH: f32 = 768.0;
 const WINDOW_HEIGHT: f32 = 512.0;
 
@@ -73,10 +76,12 @@ fn main() {
         // events
         .add_event::<SpawnMinionEvent>()
         .add_event::<DamageTakenEvent>()
+        .add_event::<ManaGainedEvent>()
         // systems
         .add_systems(Startup, setup)
         .add_systems(Startup, spawn_player.after(setup))
         .add_systems(Startup, spawn_enemy.after(spawn_player))
+        .add_systems(Startup, setup_mana_spawning)
         .add_systems(Update, bevy::window::close_on_esc)
         .add_systems(Update, minion_spawner)
         .add_systems(Update, handle_actions)
@@ -88,6 +93,8 @@ fn main() {
         .add_systems(Update, handle_damage_taken)
         .add_systems(Update, update_health_bars)
         .add_systems(Update, update_mana_bar)
+        .add_systems(Update, mana_spawner)
+        .add_systems(Update, handle_mana_gained)
         // .add_systems(Update, dev_tools_system)
         // resources
         .insert_resource(SubstepCount(6))
@@ -128,7 +135,7 @@ struct SpawnMinionEvent(f32);
 #[derive(Event, Debug)]
 struct DamageTakenEvent {
     entity: Entity,
-    damage: i32,
+    amount: i32,
 }
 
 #[derive(Component, Debug)]
@@ -136,6 +143,21 @@ struct HealthBar;
 
 #[derive(Component, Debug)]
 struct ManaBar;
+
+#[derive(Component, Debug)]
+struct ManaGem(i32);
+
+#[derive(Resource, Debug)]
+struct ManaSpawnConfig {
+    timer: Timer,
+}
+
+#[derive(Event, Debug)]
+struct ManaGainedEvent {
+    player: Entity,
+    mana_gem: Entity,
+    amount: i32,
+}
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum PlayerAction {
@@ -165,6 +187,7 @@ enum GameLayer {
     Player, // Layer 0
     Minion, // Layer 1
     Enemy,  // Layer 3
+    Gems,   // Layer 4
 }
 
 fn setup(
@@ -181,7 +204,7 @@ fn setup(
             text: Text::from_section(
                 "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
                 TextStyle {
-                    font: asset_server.load("fonts/FiraSansExtraCondensed-Regular.ttf"),
+                    font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
                     font_size: 24.0,
                     color: Color::WHITE,
                 }),
@@ -200,7 +223,7 @@ fn setup(
             text: Text::from_section(
                 "MP: ",
                 TextStyle {
-                    font: asset_server.load("fonts/FiraSansExtraCondensed-Regular.ttf"),
+                    font: asset_server.load("fonts/FiraSansCondensed-Regular.ttf"),
                     font_size: 24.0,
                     color: Color::ALICE_BLUE,
                 }),
@@ -271,7 +294,7 @@ fn spawn_player(
         .insert(Mass(10.0))
         .insert(Restitution::new(0.0))
         .insert(Position(PLAYER_POSITION))
-        .insert(CollisionLayers::new(GameLayer::Player, [GameLayer::Enemy]))
+        .insert(CollisionLayers::new(GameLayer::Player, [GameLayer::Enemy, GameLayer::Gems]))
         .insert(SpriteBundle {
             texture: asset_server.load("Sprite-Player.png"),
             ..default()
@@ -282,8 +305,8 @@ fn spawn_player(
             max: 10,
         })
         .insert(Mana {
-            current: 100,
-            max: 100,
+            current: 50,
+            max: 50,
         })
         .insert(DamageDone(0));
 }
@@ -427,7 +450,7 @@ fn handle_actions(
 
         if action_state.just_pressed(&PlayerAction::SpawnMinions) {
             let mana_cost = 10;
-            if let Ok(mut mana) = player_mana_query.get_single_mut() {
+            if let Ok(mut mana) = player_mana_query.get_single_mut() { // TODO: move this logic to the minion spawner
                 if mana.current >= mana_cost {
                     mana.current -= mana_cost;
                     for i in 1..2 {
@@ -512,9 +535,12 @@ fn handle_collisions(
     mut event_reader_collisions: EventReader<CollisionStarted>,
     minion_query: Query<&Minion>,
     damage_done_query: Query<&DamageDone>,
+    mana_gem_query: Query<&ManaGem>,
     mut ew_damage_taken: EventWriter<DamageTakenEvent>,
+    mut ew_mana_gained: EventWriter<ManaGainedEvent>,
 ) {
     for CollisionStarted(entity1, entity2) in event_reader_collisions.read() {
+        // damaging collisions
         if let Ok(damage) = damage_done_query.get(*entity1) {
             // ignore minion-minion collisions
             if let Ok(_entity) = minion_query.get(*entity1) { // TODO: there has to be a better way of doing this
@@ -526,7 +552,16 @@ fn handle_collisions(
 
             ew_damage_taken.send(DamageTakenEvent {
                 entity: entity2.clone(), // TODO: handle the lifetime properly
-                damage: damage.0,
+                amount: damage.0,
+            });
+        }
+
+        // mana gem collisions
+        if let Ok(mana_gem) = mana_gem_query.get(*entity2) {
+            ew_mana_gained.send(ManaGainedEvent {
+                player: entity1.clone(), // TODO: handle the lifetime properly
+                mana_gem: entity2.clone(), // TODO: handle the lifetime properly
+                amount: mana_gem.0,
             });
         }
     }
@@ -539,12 +574,13 @@ fn handle_damage_taken(
 ) {
     for event in er_damage_taken.read() {
         if let Ok((mut health,name)) = health_query.get_mut(event.entity) {
-            health.current -= event.damage;
+            health.current = std::cmp::max(0, health.current - event.amount);
+
             debug!(
                 "{} ({:?}) takes {:?} damage (final health = {:?})",
                 name,
                 event.entity,
-                event.damage,
+                event.amount,
                 health.current,
             );
 
@@ -576,6 +612,72 @@ fn update_mana_bar(
     for mana in mana_query.iter() {
         if let Ok(mut text) = mana_bar_query.get_single_mut() {
             text.sections[0].value = format!("MP: {:3}/{:3}", mana.current, mana.max);
+        }
+    }
+}
+
+fn setup_mana_spawning(
+    mut commands: Commands,
+) {
+    commands.insert_resource(ManaSpawnConfig {
+        timer: Timer::new(Duration::from_secs(3), TimerMode::Repeating),
+    })
+}
+
+fn mana_spawner(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    time: Res<Time>,
+    mut config: ResMut<ManaSpawnConfig>,
+    mana_gem_query: Query<&ManaGem>,
+) {
+    // tick the timer
+    config.timer.tick(time.delta());
+
+    // if the timer has elapsed, spawn a gem
+    if config.timer.finished() && mana_gem_query.iter().len() <= 10 {
+        let mut rng = rand::thread_rng();
+
+        let gem_x = rng.gen_range(-HALF_WIDTH as i32..=HALF_WIDTH as i32) as f32;
+        let gem_y = rng.gen_range(-HALF_HEIGHT as i32..=HALF_HEIGHT as i32) as f32;
+        let gem_pos = Vector::new(gem_x, gem_y);
+
+        debug!("Spawning new mana gem at {}.", gem_pos);
+
+        commands
+            .spawn(ManaGem(10))
+            .insert(Name::new("ManaGem"))
+            .insert(RigidBody::Kinematic)
+            .insert(Collider::circle(10.0))
+            .insert(CollisionLayers::new(GameLayer::Gems, [GameLayer::Player]))
+            .insert(Position(gem_pos))
+            .insert(SpriteBundle {
+                texture: asset_server.load("Sprite-ManaGem.png"),
+                ..default()
+            });
+    }
+}
+
+fn handle_mana_gained(
+    mut commands: Commands,
+    mut er_mana_gained: EventReader<ManaGainedEvent>,
+    mut mana_query: Query<(&mut Mana, &Name), With<Mana>>,
+) {
+    for event in er_mana_gained.read() {
+        if let Ok((mut mana, name)) = mana_query.get_mut(event.player) {
+            if mana.current < mana.max {
+                mana.current = std::cmp::min(mana.max, mana.current + event.amount);
+                
+                debug!(
+                    "{} ({:?}) gains {:?} mana (final mana total = {:?})",
+                    name,
+                    event.player,
+                    event.amount,
+                    mana.current,
+                );
+                
+                commands.entity(event.mana_gem).despawn();
+            }
         }
     }
 }
