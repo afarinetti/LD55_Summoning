@@ -79,34 +79,106 @@ fn main() {
         .add_plugins(InputManagerPlugin::<PlayerAction>::default())
         .add_plugins(PhysicsPlugins::default())
         // .add_plugins(PhysicsDebugPlugin::default())
+
         // events
         .add_event::<SpawnMinionEvent>()
         .add_event::<DamageTakenEvent>()
         .add_event::<ManaGainedEvent>()
-        // systems
-        .add_systems(Startup, setup)
-        .add_systems(Startup, spawn_player.after(setup))
-        .add_systems(Startup, spawn_enemy.after(spawn_player))
-        .add_systems(Startup, setup_mana_spawning)
-        .add_systems(Update, bevy::window::close_on_esc)
-        .add_systems(Update, minion_spawner)
-        .add_systems(Update, handle_actions)
-        // .add_systems(Update, handle_actions_touch)
-        // .add_systems(Update, touch_resource)
-        .add_systems(Update, enemy_movement)
-        .add_systems(Update, minion_movement)
-        .add_systems(Update, handle_collisions)
-        .add_systems(Update, handle_damage_taken.after(handle_collisions))
-        .add_systems(Update, update_health_bars.after(handle_damage_taken))
-        .add_systems(Update, handle_mana_gained.after(handle_collisions))
-        .add_systems(Update, update_mana_bar.after(handle_mana_gained))
-        .add_systems(Update, mana_spawner)
-        // .add_systems(Update, dev_tools_system)
+
+        // states
+        .init_state::<GameState>()
+        .insert_state(GameState::MainMenu)
+        .init_state::<PausedState>()
+        .insert_state(PausedState::Running)
+
+        // system sets
+        .configure_sets(Update, (
+            MainMenuSet
+                .run_if(in_state(GameState::MainMenu)),
+            InGameSet
+                .run_if(in_state(GameState::InGame)),
+            GameOverSet
+                .run_if(in_state(GameState::GameOver)),
+        ).chain())
+
+        // pre-startup systems
+        .add_systems(PreStartup, pre_startup_init)
+        
+        // startup systems
+        .add_systems(Startup, (
+            // main menu
+            (
+                setup_main_menu,
+            ).in_set(MainMenuSet),
+            // in game
+            (
+                setup_game,
+                spawn_player.after(setup_game),
+                spawn_enemy.after(spawn_player),
+                setup_mana_spawning,
+            ).in_set(InGameSet),
+            // game over
+            (
+                setup_game_over,
+            )
+        ))
+
+        // update systems
+        .add_systems(Update, (
+            // main menu
+            (
+                bevy::window::close_on_esc,
+            ).in_set(MainMenuSet),
+            // in game
+            (
+                bevy::window::close_on_esc,
+                minion_spawner,
+                handle_actions,
+                enemy_movement,
+                minion_movement,
+                handle_collisions,
+                handle_damage_taken.after(handle_collisions),
+                update_health_bars.after(handle_damage_taken),
+                handle_mana_gained.after(handle_collisions),
+                update_mana_bar.after(handle_mana_gained),
+                mana_spawner,
+            ).in_set(InGameSet),
+            // game over
+            (
+                bevy::window::close_on_esc,
+            ).in_set(GameOverSet),
+        ))
+
         // resources
         .insert_resource(SubstepCount(6))
+
         // start
         .run();
 }
+
+#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
+enum GameState {
+    #[default]
+    MainMenu,
+    InGame,
+    GameOver
+}
+
+#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
+enum PausedState {
+    #[default]
+    Paused,
+    Running,
+}
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct MainMenuSet;
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct InGameSet;
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct GameOverSet;
 
 #[derive(Component)]
 struct CameraMarker;
@@ -220,11 +292,12 @@ enum GameLayer {
     Gems,   // Layer 4
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    // configure and spawn theS camera
-    commands
-        .spawn(Camera2dBundle::default())
-        .insert(CameraMarker);
+fn pre_startup_init(mut commands: Commands, asset_server: Res<AssetServer>) {
+    // load font(s)
+    let font_handle = asset_server.load("fonts/FiraSansCondensed-Regular.ttf");
+    commands.insert_resource(FontResource {
+        font: font_handle.clone(),
+    });
 
     // load and tile background image
     commands.spawn((
@@ -246,19 +319,48 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             stretch_value: 1.0,
         },
     ));
+}
 
-    // load font(s)
-    let font_handle = asset_server.load("fonts/FiraSansCondensed-Regular.ttf");
-    commands.insert_resource(FontResource {
-        font: font_handle.clone(),
-    });
+fn setup_main_menu(mut commands: Commands, font_res: Res<FontResource>) {
+    // spawn some instructions
+    commands.spawn((Text2dBundle {
+        text: Text::from_section(
+            "Bomb the slime to survive!",
+            TextStyle {
+                font: font_res.font.clone(),
+                font_size: 64.0,
+                color: Color::WHITE,
+            },
+        ),
+        text_anchor: Anchor::Center,
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, 0.0),
+            ..default()
+        },
+        ..default()
+    },));
+}
 
+fn setup_game_over(mut commands: Commands, font_res: Res<FontResource>) {
+
+}
+
+fn setup_game(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    font_res: Res<FontResource>,
+) {
+    // configure and spawn the camera
+    commands
+        .spawn(Camera2dBundle::default())
+        .insert(CameraMarker);
+    
     // spawn some instructions
     commands.spawn((Text2dBundle {
         text: Text::from_section(
             "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
             TextStyle {
-                font: font_handle.clone(),
+                font: font_res.font.clone(),
                 font_size: 20.0,
                 color: Color::WHITE,
             },
@@ -276,7 +378,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             text: Text::from_section(
                 "Don't get hit. Spawn bombs, collect mana gems. Survive.",
                 TextStyle {
-                    font: font_handle.clone(),
+                    font: font_res.font.clone(),
                     font_size: 20.0,
                     color: Color::WHITE,
                 },
@@ -296,7 +398,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             text: Text::from_section(
                 "MP: ",
                 TextStyle {
-                    font: font_handle.clone(),
+                    font: font_res.font.clone(),
                     font_size: 24.0,
                     color: Color::ALICE_BLUE,
                 },
