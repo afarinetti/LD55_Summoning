@@ -135,7 +135,6 @@ fn main() {
         // on-enter: game over
         .add_systems(OnEnter(GameState::GameOver), (
             setup_game_over,
-            // play_bgm,
         ))
 
         // update systems
@@ -162,6 +161,7 @@ fn main() {
             // game over
             (
                 bevy::window::close_on_esc,
+                handle_game_over_actions,
             ).run_if(in_state(GameState::GameOver)),
         ))
 
@@ -172,12 +172,12 @@ fn main() {
 
         // on exit: in game
         .add_systems(OnExit(GameState::InGame), (
-            setup_main_menu,
+            cleanup_in_game_screen,
         ))
 
         // on exit: game over
         .add_systems(OnExit(GameState::GameOver), (
-            setup_main_menu,
+            cleanup_game_over_screen,
         ))
 
         // resources
@@ -290,8 +290,12 @@ enum MainMenuScreen {
 #[derive(Component)]
 struct InGameScreen;
 
-#[derive(Component)]
-struct GameOverScreen;
+#[derive(Component, PartialEq, Eq, Hash)]
+enum GameOverScreen {
+    Node,
+    Text,
+    RestartButton,
+}
 
 // enum GameResult {
 //     None,
@@ -371,19 +375,48 @@ fn cleanup_main_menu(
     }
 }
 
+fn cleanup_in_game_screen(
+    mut commands: Commands,
+    query: Query<Entity, With<InGameScreen>>,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
 fn setup_game_over(
     mut commands: Commands,
-    font_res: Res<FontResource>,
     assets: Res<AssetServer>,
 ) {
     root(c_root, &assets, &mut commands, |p| {
-        nodei(c_no_bg, MainMenuScreen::Node, p, |p| {
-            texti("Game over! You ", c_text, c_pixel_title, MainMenuScreen::Text, p);
+        nodei(c_no_bg, GameOverScreen::Node, p, |p| {
+            texti("Game over! You ", c_text, c_pixel_title, GameOverScreen::Text, p);
         });
-        nodei(c_no_bg, MainMenuScreen::Node, p, |p| {
-            text_buttoni("Restart", c_button, c_pixel_button, MainMenuScreen::BeginButton, p);
+        nodei(c_no_bg, GameOverScreen::Node, p, |p| {
+            text_buttoni("Restart", c_button, c_pixel_button, GameOverScreen::RestartButton, p);
         });
     });
+}
+
+fn handle_game_over_actions(
+    ui_entities: Query<(&GameOverScreen, &Interaction), Changed<Interaction>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    for (id, inter) in &ui_entities {
+        if *id == GameOverScreen::RestartButton && *inter == Interaction::Pressed {
+            next_state.set(GameState::InGame);
+            break;
+        }
+    }
+}
+
+fn cleanup_game_over_screen(
+    mut commands: Commands,
+    query: Query<Entity, With<GameOverScreen>>,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
 }
 
 fn setup_game(
@@ -790,6 +823,7 @@ fn handle_damage_taken(
     audio_assets: Res<AudioAssets>,
     // effects_channel: Res<AudioChannel<EffectsChannel>>
     audio: Res<Audio>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     for event in er_damage_taken.read() {
         if let Ok((mut health, name)) = health_query.get_mut(event.receiver) {
@@ -837,6 +871,8 @@ fn handle_damage_taken(
                         .handle();
                     commands.insert_resource(AudioResource(handle));
 
+                    next_state.set(GameState::GameOver);
+
                 } else if let Ok(_enemy) = enemy_query.get(event.receiver) {
                     // effects_channel.play(
                     //     audio_assets.enemy_die.clone())
@@ -847,6 +883,8 @@ fn handle_damage_taken(
                         .with_volume(0.5)
                         .handle();
                     commands.insert_resource(AudioResource(handle));
+
+                    next_state.set(GameState::GameOver);
                 }
             }
         }
