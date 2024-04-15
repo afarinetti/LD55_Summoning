@@ -91,11 +91,12 @@ fn main() {
         .add_systems(Update, enemy_movement)
         .add_systems(Update, minion_movement)
         .add_systems(Update, handle_collisions)
-        .add_systems(Update, handle_damage_taken)
-        .add_systems(Update, update_health_bars)
-        .add_systems(Update, update_mana_bar)
+        .add_systems(Update, handle_damage_taken.after(handle_collisions))
+        .add_systems(Update, update_health_bars.after(handle_damage_taken))
+        .add_systems(Update, handle_mana_gained.after(handle_collisions))
+        .add_systems(Update, update_mana_bar.after(handle_mana_gained))
         .add_systems(Update, mana_spawner)
-        .add_systems(Update, handle_mana_gained)
+
         // .add_systems(Update, dev_tools_system)
         // resources
         .insert_resource(SubstepCount(6))
@@ -667,7 +668,7 @@ fn handle_collisions(
                 amount: mana_gem.0,
             });
         }
-        
+
         // damaging collisions
         if let Ok(damage) = damage_done_query.get(*entity1) {
             if damage.0 == 0 {
@@ -682,7 +683,7 @@ fn handle_collisions(
                     continue;
                 }
             }
-            
+
             info!(
                 "Sending damage taken event from {:?} to {:?} for {} damage",
                 entity1,
@@ -721,8 +722,8 @@ fn handle_damage_taken(
             );
 
             if health.current <= 0 {
-                debug!("{} ({:?}) dies.", name, event.entity);
-                commands.entity(event.entity).despawn_recursive();
+                info!("{} ({:?}) dies.", name, event.entity);
+                commands.entity(event.entity).despawn();
 
                 if let Ok(_player) = player_query.get(event.entity) {
                     commands.spawn(AudioBundle {
