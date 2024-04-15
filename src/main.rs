@@ -211,6 +211,27 @@ fn setup(
     commands.spawn(Camera2dBundle::default())
         .insert(CameraMarker);
 
+    // load and tile background image
+    commands.spawn((
+        SpriteBundle {
+            texture: asset_server.load("images/Background-Rock.png"),
+            sprite: Sprite {
+              custom_size: Some(Vec2::new(WINDOW_WIDTH, WINDOW_WIDTH)),
+              ..default()
+            },
+            transform: Transform {
+                translation: Vec3::new(0.0, 0.0, -1.0),
+                ..default()
+            },
+            ..default()
+        },
+        ImageScaleMode::Tiled {
+            tile_x: true,
+            tile_y: true,
+            stretch_value: 1.0,
+        },
+    ));
+
     // load font(s)
     let font_handle = asset_server.load("fonts/FiraSansCondensed-Regular.ttf");
     commands.insert_resource(FontResource {
@@ -314,7 +335,7 @@ fn setup(
             -HALF_HEIGHT,
             0.0,
         )));
-    
+
     // pre-load sprites
     commands.insert_resource(SpriteResource {
         player: asset_server.load("images/Sprite-Player.png"),
