@@ -16,6 +16,7 @@ use leafwing_input_manager::prelude::*;
 use rand::Rng;
 use std::cmp;
 use std::time::Duration;
+use bevy::asset::AssetMetaCheck;
 use bevy_ui_dsl::*;
 use classes::*;
 use bevy_asset_loader::prelude::*;
@@ -64,6 +65,8 @@ fn main() {
     };
 
     App::new()
+        // fix for meta file loading issue
+        .insert_resource(AssetMetaCheck::Never)
         // plugins
         .add_plugins(
             DefaultPlugins
