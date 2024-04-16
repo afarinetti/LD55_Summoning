@@ -2,11 +2,10 @@
 Ludum Dare 55 Submission (Theme: Summoning)
 
 ## Known Issues
-### Minions
-- Minions can spawn out of bounds
 
-### Player
-- Player cannot die when not moved from initial corner -- physics sleeping?
+1. Audio does not work on my Linux box, but works in WASM?!
+2. Minions can spawn out of bounds
+3. Player cannot die when not moved from initial corner -- physics sleeping?
 
 ## Dependencies
 
