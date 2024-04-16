@@ -12,6 +12,7 @@ Ludum Dare 55 Submission (Theme: Summoning)
 ## Dependencies
 
 - Rust 1.77.2+
+- [Extra Bevy Linux Dependencies](https://github.com/bevyengine/bevy/blob/main/docs/linux_dependencies.md)
 - See `Cargo.toml` for Rust crate dependencies.
 - `rustup target install wasm32-unknown-unknown`
 - `cargo install trunk-ng`
