@@ -1,7 +1,7 @@
 # Bomb the slime to survive!
 Ludum Dare 55 Submission (Theme: Summoning)
 
-<iframe frameborder="0" src="https://itch.io/embed/2649238" width="552" height="167"><a href="https://thulium.itch.io/bomb-the-slime-to-survive">Bomb the slime to survive! by thulium</a></iframe>
+[Play the game on itch.io!](https://thulium.itch.io/bomb-the-slime-to-survive)
 
 ## Known Issues
 
