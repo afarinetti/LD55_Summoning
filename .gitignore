@@ -20,7 +20,13 @@ Cargo.lock
 dist/
 
 # nix specific
-.direnv/
-.devenv/
-.devenv.flake.nix
 
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
