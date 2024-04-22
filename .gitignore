@@ -18,3 +18,8 @@ Cargo.lock
 
 # do not commit build wasm
 dist/
+
+# nix specific
+.direnv/
+.devenv/
+
