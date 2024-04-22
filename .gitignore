@@ -22,4 +22,5 @@ dist/
 # nix specific
 .direnv/
 .devenv/
+.devenv.flake.nix
 
