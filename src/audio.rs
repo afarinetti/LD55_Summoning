@@ -1,8 +1,8 @@
+use crate::loading::AudioAssets;
 use bevy::asset::{AssetServer, Handle};
 use bevy::log::info;
 use bevy::prelude::{Commands, Res, Resource};
 use bevy_kira_audio::prelude::*;
-use crate::loading::AudioAssets;
 
 #[derive(Resource)]
 pub struct AudioResource(pub Handle<AudioInstance>);

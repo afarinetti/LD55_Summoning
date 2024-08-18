@@ -1,28 +1,28 @@
-mod classes;
 mod audio;
+mod classes;
 mod loading;
 
+use audio::*;
+use bevy::asset::AssetMetaCheck;
 use bevy::input::common_conditions::input_toggle_active;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use bevy::window::{EnabledButtons, ExitCondition, PresentMode, WindowResolution};
+use bevy_asset_loader::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_kira_audio::{Audio, AudioApp, AudioChannel, AudioControl, AudioInstance, AudioPlugin};
 use bevy_screen_diagnostics::{ScreenDiagnosticsPlugin, ScreenFrameDiagnosticsPlugin};
+use bevy_ui_dsl::*;
 use bevy_xpbd_2d::math::Vector;
 use bevy_xpbd_2d::prelude::*;
+use classes::*;
 use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::*;
+use loading::*;
 use rand::Rng;
 use std::cmp;
 use std::time::Duration;
-use bevy::asset::AssetMetaCheck;
-use bevy_ui_dsl::*;
-use classes::*;
-use bevy_asset_loader::prelude::*;
-use bevy_kira_audio::{Audio, AudioApp, AudioChannel, AudioControl, AudioInstance, AudioPlugin};
-use audio::*;
-use loading::*;
 
 const WINDOW_WIDTH: f32 = 768.0;
 const WINDOW_HEIGHT: f32 = 512.0;
@@ -107,87 +107,67 @@ fn main() {
             LoadingState::new(GameState::AssetLoading)
                 .continue_to_state(GameState::MainMenu)
                 .load_collection::<AudioAssets>()
-                .load_collection::<SpriteAssets>()
+                .load_collection::<SpriteAssets>(),
         )
-
         // events
         .add_event::<SpawnMinionEvent>()
         .add_event::<DamageTakenEvent>()
         .add_event::<ManaGainedEvent>()
-
         // states
         .init_state::<GameState>()
-
         // pre-startup systems
         .add_systems(Startup, pre_startup_init)
-
         // on-enter: main menu
-        .add_systems(OnEnter(GameState::MainMenu), (
-            setup_main_menu,
-            play_bgm,
-        ))
-
+        .add_systems(OnEnter(GameState::MainMenu), (setup_main_menu, play_bgm))
         // on-enter: in game
-        .add_systems(OnEnter(GameState::InGame), (
-            setup_game,
-            spawn_player.after(setup_game),
-            spawn_enemy.after(spawn_player),
-            setup_mana_spawning,
-        ))
-
+        .add_systems(
+            OnEnter(GameState::InGame),
+            (
+                setup_game,
+                spawn_player.after(setup_game),
+                spawn_enemy.after(spawn_player),
+                setup_mana_spawning,
+            ),
+        )
         // on-enter: game over
-        .add_systems(OnEnter(GameState::GameOver), (
-            setup_game_over,
-        ))
-
+        .add_systems(OnEnter(GameState::GameOver), (setup_game_over,))
         // update systems
-        .add_systems(Update, (
-            // main menu
+        .add_systems(
+            Update,
             (
-                bevy::window::close_on_esc,
-                handle_main_menu_actions,
-            ).run_if(in_state(GameState::MainMenu)),
-            // in game
-            (
-                bevy::window::close_on_esc,
-                minion_spawner,
-                handle_actions,
-                enemy_movement,
-                minion_movement,
-                handle_collisions,
-                handle_damage_taken.after(handle_collisions),
-                update_health_bars.after(handle_damage_taken),
-                handle_mana_gained.after(handle_collisions),
-                update_mana_bar.after(handle_mana_gained),
-                mana_spawner,
-            ).run_if(in_state(GameState::InGame)),
-            // game over
-            (
-                bevy::window::close_on_esc,
-                handle_game_over_actions,
-            ).run_if(in_state(GameState::GameOver)),
-        ))
-
+                // main menu
+                (bevy::window::close_on_esc, handle_main_menu_actions)
+                    .run_if(in_state(GameState::MainMenu)),
+                // in game
+                (
+                    bevy::window::close_on_esc,
+                    minion_spawner,
+                    handle_actions,
+                    enemy_movement,
+                    minion_movement,
+                    handle_collisions,
+                    handle_damage_taken.after(handle_collisions),
+                    update_health_bars.after(handle_damage_taken),
+                    handle_mana_gained.after(handle_collisions),
+                    update_mana_bar.after(handle_mana_gained),
+                    mana_spawner,
+                )
+                    .run_if(in_state(GameState::InGame)),
+                // game over
+                (bevy::window::close_on_esc, handle_game_over_actions)
+                    .run_if(in_state(GameState::GameOver)),
+            ),
+        )
         // on exit: main menu
-        .add_systems(OnExit(GameState::MainMenu), (
-            cleanup_main_menu,
-        ))
-
+        .add_systems(OnExit(GameState::MainMenu), (cleanup_main_menu,))
         // on exit: in game
-        .add_systems(OnExit(GameState::InGame), (
-            cleanup_in_game_screen,
-        ))
-
+        .add_systems(OnExit(GameState::InGame), (cleanup_in_game_screen,))
         // on exit: game over
-        .add_systems(OnExit(GameState::GameOver), (
-            cleanup_game_over_screen,
-        ))
-
+        .add_systems(OnExit(GameState::GameOver), (cleanup_game_over_screen,))
         // resources
         .insert_resource(GameStatus {
             result: GameResult::None,
         })
-
         // start
         .run();
 }
@@ -347,16 +327,25 @@ fn pre_startup_init(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn setup_main_menu(
-    mut commands: Commands,
-    assets: Res<AssetServer>,
-) {
+fn setup_main_menu(mut commands: Commands, assets: Res<AssetServer>) {
     root(c_root, &assets, &mut commands, |p| {
         nodei(c_no_bg, MainMenuScreen::Node, p, |p| {
-            texti("Bomb the slimes to survive!", c_text, c_pixel_title, MainMenuScreen::Text, p);
+            texti(
+                "Bomb the slimes to survive!",
+                c_text,
+                c_pixel_title,
+                MainMenuScreen::Text,
+                p,
+            );
         });
         nodei(c_no_bg, MainMenuScreen::Node, p, |p| {
-            text_buttoni("Begin", c_button, c_pixel_button, MainMenuScreen::BeginButton, p);
+            text_buttoni(
+                "Begin",
+                c_button,
+                c_pixel_button,
+                MainMenuScreen::BeginButton,
+                p,
+            );
         });
     });
 }
@@ -373,19 +362,13 @@ fn handle_main_menu_actions(
     }
 }
 
-fn cleanup_main_menu(
-    mut commands: Commands,
-    query: Query<Entity, With<MainMenuScreen>>,
-) {
+fn cleanup_main_menu(mut commands: Commands, query: Query<Entity, With<MainMenuScreen>>) {
     for entity in query.iter() {
         commands.entity(entity).despawn_recursive();
     }
 }
 
-fn cleanup_in_game_screen(
-    mut commands: Commands,
-    query: Query<Entity, With<InGameScreen>>,
-) {
+fn cleanup_in_game_screen(mut commands: Commands, query: Query<Entity, With<InGameScreen>>) {
     for entity in query.iter() {
         commands.entity(entity).despawn_recursive();
     }
@@ -398,10 +381,22 @@ fn setup_game_over(
 ) {
     root(c_root, &assets, &mut commands, |p| {
         nodei(c_no_bg, GameOverScreen::Node, p, |p| {
-            texti(format!("Game over! You {:?}!", game_status.result), c_text, c_pixel_title, GameOverScreen::Text, p);
+            texti(
+                format!("Game over! You {:?}!", game_status.result),
+                c_text,
+                c_pixel_title,
+                GameOverScreen::Text,
+                p,
+            );
         });
         nodei(c_no_bg, GameOverScreen::Node, p, |p| {
-            text_buttoni("Restart", c_button, c_pixel_button, GameOverScreen::RestartButton, p);
+            text_buttoni(
+                "Restart",
+                c_button,
+                c_pixel_button,
+                GameOverScreen::RestartButton,
+                p,
+            );
         });
     });
 }
@@ -418,36 +413,33 @@ fn handle_game_over_actions(
     }
 }
 
-fn cleanup_game_over_screen(
-    mut commands: Commands,
-    query: Query<Entity, With<GameOverScreen>>,
-) {
+fn cleanup_game_over_screen(mut commands: Commands, query: Query<Entity, With<GameOverScreen>>) {
     for entity in query.iter() {
         commands.entity(entity).despawn_recursive();
     }
 }
 
-fn setup_game(
-    mut commands: Commands,
-    font_res: Res<FontResource>,
-) {
+fn setup_game(mut commands: Commands, font_res: Res<FontResource>) {
     // spawn some instructions
-    commands.spawn((Text2dBundle {
-        text: Text::from_section(
-            "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
-            TextStyle {
-                font: font_res.font.clone(),
-                font_size: 20.0,
-                color: Color::WHITE,
+    commands.spawn((
+        Text2dBundle {
+            text: Text::from_section(
+                "Move: WASD/Arrows/Left Stick | Spawn Bombs: Space Bar/Gamepad A",
+                TextStyle {
+                    font: font_res.font.clone(),
+                    font_size: 20.0,
+                    color: Color::WHITE,
+                },
+            ),
+            text_anchor: Anchor::TopLeft,
+            transform: Transform {
+                translation: Vec3::new(-HALF_WIDTH, HALF_HEIGHT, 0.0),
+                ..default()
             },
-        ),
-        text_anchor: Anchor::TopLeft,
-        transform: Transform {
-            translation: Vec3::new(-HALF_WIDTH, HALF_HEIGHT, 0.0),
             ..default()
         },
-        ..default()
-    },InGameScreen));
+        InGameScreen,
+    ));
     commands.spawn((
         // TODO: make this a section
         Text2dBundle {
@@ -465,7 +457,8 @@ fn setup_game(
                 ..default()
             },
             ..default()
-        },InGameScreen
+        },
+        InGameScreen,
     ));
 
     // spawn the player's mana bar
@@ -499,7 +492,8 @@ fn setup_game(
             0.0,
             HALF_HEIGHT,
             0.0,
-        ))).insert(InGameScreen);
+        )))
+        .insert(InGameScreen);
 
     // create the left wall
     commands
@@ -510,7 +504,8 @@ fn setup_game(
             -HALF_WIDTH,
             0.0,
             0.0,
-        ))).insert(InGameScreen);
+        )))
+        .insert(InGameScreen);
 
     // create the right wall
     commands
@@ -519,7 +514,8 @@ fn setup_game(
         .insert(Name::new("Wall_Right"))
         .insert(TransformBundle::from(Transform::from_xyz(
             HALF_WIDTH, 0.0, 0.0,
-        ))).insert(InGameScreen);
+        )))
+        .insert(InGameScreen);
 
     // create the bottom
     commands
@@ -530,7 +526,8 @@ fn setup_game(
             0.0,
             -HALF_HEIGHT,
             0.0,
-        ))).insert(InGameScreen);
+        )))
+        .insert(InGameScreen);
 }
 
 fn spawn_player(mut commands: Commands, sprite_res: Res<SpriteAssets>) {
@@ -567,11 +564,7 @@ fn spawn_player(mut commands: Commands, sprite_res: Res<SpriteAssets>) {
         .insert(InGameScreen);
 }
 
-fn spawn_enemy(
-    mut commands: Commands,
-    sprite_res: Res<SpriteAssets>,
-    font_res: Res<FontResource>,
-) {
+fn spawn_enemy(mut commands: Commands, sprite_res: Res<SpriteAssets>, font_res: Res<FontResource>) {
     // configure and spawn the enemy
     commands
         .spawn(Enemy)
@@ -882,7 +875,6 @@ fn handle_damage_taken(
 
                     next_state.set(GameState::GameOver);
                     game_status.result = GameResult::Lose;
-
                 } else if let Ok(_enemy) = enemy_query.get(event.receiver) {
                     // effects_channel.play(
                     //     audio_assets.enemy_die.clone())
@@ -960,7 +952,8 @@ fn mana_spawner(
             .insert(SpriteBundle {
                 texture: sprite_res.mana_gem.clone(),
                 ..default()
-            }).insert(InGameScreen);
+            })
+            .insert(InGameScreen);
     }
 }
 

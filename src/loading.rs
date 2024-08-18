@@ -31,13 +31,13 @@ pub struct AudioAssets {
 pub struct SpriteAssets {
     #[asset(path = "images/Sprite-Player.png")]
     pub player: Handle<Image>,
-    
+
     #[asset(path = "images/Sprite-Enemy.png")]
     pub enemy: Handle<Image>,
-    
+
     #[asset(path = "images/Sprite-Bomb.png")]
     pub minion: Handle<Image>,
-    
+
     #[asset(path = "images/Sprite-ManaGem.png")]
     pub mana_gem: Handle<Image>,
 }
